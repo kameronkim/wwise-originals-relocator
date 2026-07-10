@@ -6,6 +6,7 @@ import subprocess
 from typing import Protocol
 
 from .models import RelocationPlan, ValidationIssue, ValidationResult
+from .project_paths import UnsafeProjectPath, resolve_project_path
 
 
 class WorkspaceProbe(Protocol):
@@ -92,9 +93,15 @@ def validate_relocation_plan(
             )
             continue
 
-        source = project_root / item.from_relative_path
-        target = project_root / item.to_relative_path
-        work_unit = project_root / item.work_unit_path
+        try:
+            source = resolve_project_path(project_root, item.from_relative_path)
+            target = resolve_project_path(project_root, item.to_relative_path)
+            work_unit = resolve_project_path(project_root, item.work_unit_path)
+        except UnsafeProjectPath as exc:
+            issues.append(
+                ValidationIssue("outside-project", str(exc), item.object_path)
+            )
+            continue
         if source.resolve() == target.resolve():
             issues.append(
                 ValidationIssue(

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
-from typing import Sequence
 
 
 class P4ExecutionDisabled(RuntimeError):
@@ -50,6 +49,18 @@ class P4Client:
             args.extend(("-c", changelist))
         args.extend((source, target))
         return self.command("move", *args)
+
+    def diff(self, path: str | Path) -> P4Command:
+        return self.command("diff", "-du", path)
+
+    def revert(
+        self, *paths: str | Path, changelist: str | None = None
+    ) -> P4Command:
+        args: list[str | Path] = []
+        if changelist is not None:
+            args.extend(("-c", changelist))
+        args.extend(paths)
+        return self.command("revert", *args)
 
     def run(self, command: P4Command) -> subprocess.CompletedProcess[str]:
         if self.dry_run:

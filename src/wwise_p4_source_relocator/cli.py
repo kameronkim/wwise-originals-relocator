@@ -2,18 +2,27 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
 from typing import Sequence
 
+from .applier import ApplyError, apply_single_file
+from .p4_client import P4Client
 from .planner import build_noop_plan, build_relocation_plan
 from .preflight import validate_relocation_plan
 from .report import (
     read_relocation_plan,
+    read_rollback_manifest,
     read_scan_result,
     render_relocation_plan,
     render_validation,
     write_json_document,
     write_json_plan,
     write_markdown_plan,
+)
+from .rollback import rollback_manifest
+from .validator import (
+    validate_applied_manifest,
+    validate_live_wwise_manifest_at_url,
 )
 from .waapi_reader import scan_live
 from .wwise_xml import parse_source_references
@@ -53,6 +62,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate.add_argument("--plan", required=True, type=Path)
     validate.add_argument("--report", type=Path)
+
+    apply = subparsers.add_parser(
+        "apply", help="Apply exactly one preflighted relocation candidate"
+    )
+    apply.add_argument("--plan", required=True, type=Path)
+    apply.add_argument("--only", required=True)
+    apply.add_argument("--changelist")
+    apply.add_argument("--manifest", required=True, type=Path)
+
+    validate_apply = subparsers.add_parser(
+        "validate-apply", help="Validate an applied relocation from its manifest"
+    )
+    validate_apply.add_argument("--manifest", required=True, type=Path)
+    validate_apply.add_argument("--report", type=Path)
+    validate_apply.add_argument("--waapi-url")
+
+    rollback = subparsers.add_parser(
+        "rollback", help="Revert only files recorded in a rollback manifest"
+    )
+    rollback.add_argument("--manifest", required=True, type=Path)
     return parser
 
 
@@ -100,5 +129,49 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.report.parent.mkdir(parents=True, exist_ok=True)
             args.report.write_text(report, encoding="utf-8")
         print(report, end="")
+        return 0 if result.is_valid else 1
+    if args.command == "apply":
+        plan = read_relocation_plan(args.plan)
+        try:
+            manifest, validation = apply_single_file(
+                plan,
+                only=args.only,
+                changelist=args.changelist,
+                manifest_path=args.manifest,
+                p4=P4Client(dry_run=False),
+            )
+        except ApplyError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(render_validation(validation), end="")
+        print(f"Applied one relocation; rollback manifest: {args.manifest}")
+        return 0
+    if args.command == "validate-apply":
+        manifest = read_rollback_manifest(args.manifest)
+        result = validate_applied_manifest(
+            manifest, p4=P4Client(dry_run=False)
+        )
+        try:
+            live_result = validate_live_wwise_manifest_at_url(
+                manifest, url=args.waapi_url
+            )
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        result = type(result)(result.issues + live_result.issues)
+        report = render_validation(result)
+        if args.report:
+            args.report.parent.mkdir(parents=True, exist_ok=True)
+            args.report.write_text(report, encoding="utf-8")
+        print(report, end="")
+        return 0 if result.is_valid else 1
+    if args.command == "rollback":
+        manifest = read_rollback_manifest(args.manifest)
+        result = rollback_manifest(
+            manifest,
+            p4=P4Client(dry_run=False),
+            manifest_path=args.manifest,
+        )
+        print(render_validation(result), end="")
         return 0 if result.is_valid else 1
     raise AssertionError(f"Unhandled command: {args.command}")

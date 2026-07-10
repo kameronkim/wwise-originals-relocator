@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import codecs
+from dataclasses import dataclass
+import hashlib
 from pathlib import Path
+import re
+from xml.sax.saxutils import escape
 from xml.etree import ElementTree
 
 from .models import SourceReference
@@ -8,6 +13,27 @@ from .models import SourceReference
 
 class WwuParseError(ValueError):
     """Raised when a work unit is malformed or lacks required identity data."""
+
+
+class WwuPatchError(ValueError):
+    """Raised when an exact, identity-scoped WWU patch cannot be proven safe."""
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedWwuPatch:
+    original_bytes: bytes
+    patched_bytes: bytes
+    old_xml_path: str
+    new_xml_path: str
+    encoding: str
+
+    @property
+    def original_sha256(self) -> str:
+        return hashlib.sha256(self.original_bytes).hexdigest()
+
+    @property
+    def patched_sha256(self) -> str:
+        return hashlib.sha256(self.patched_bytes).hexdigest()
 
 
 def _local_name(tag: str) -> str:
@@ -87,3 +113,131 @@ def parse_source_references(
                 )
 
     return tuple(references)
+
+
+def prepare_source_path_patch(
+    wwu_path: str | Path,
+    *,
+    object_guid: str,
+    old_relative_path: str,
+    new_relative_path: str,
+) -> PreparedWwuPatch:
+    """Prepare one exact text replacement without serializing the XML tree."""
+
+    path = Path(wwu_path)
+    try:
+        original = path.read_bytes()
+    except OSError as exc:
+        raise WwuPatchError(f"Unable to read Wwise work unit {path}: {exc}") from exc
+
+    encoding = _detect_xml_encoding(original)
+    try:
+        text = original.decode(encoding)
+        root = ElementTree.fromstring(original)
+    except (UnicodeError, ElementTree.ParseError) as exc:
+        raise WwuPatchError(f"Unable to decode Wwise work unit {path}: {exc}") from exc
+
+    sounds = [
+        node
+        for node in root.iter()
+        if _local_name(node.tag) == "Sound"
+        and node.get("ID", "").casefold() == object_guid.casefold()
+    ]
+    if len(sounds) != 1:
+        raise WwuPatchError(
+            f"Expected one Sound with GUID {object_guid}, found {len(sounds)}"
+        )
+
+    matches = [
+        node
+        for node in _children_named(sounds[0], "AudioFile")
+        if node.text
+        and _canonical_source_path(node.text)
+        == _canonical_source_path(old_relative_path)
+    ]
+    if len(matches) != 1:
+        raise WwuPatchError(
+            "Expected one exact AudioFile path under the target Sound, "
+            f"found {len(matches)}"
+        )
+
+    old_xml_path = matches[0].text.strip()
+    new_xml_path = _match_wwu_path_style(old_xml_path, new_relative_path)
+    escaped_old = escape(old_xml_path)
+    escaped_new = escape(new_xml_path)
+    if text.count(escaped_old) != 1:
+        raise WwuPatchError(
+            "The exact source path appears more than once in the Work Unit"
+        )
+
+    patched_text = text.replace(escaped_old, escaped_new, 1)
+    try:
+        patched = patched_text.encode(encoding)
+        ElementTree.fromstring(patched)
+    except (UnicodeError, ElementTree.ParseError) as exc:
+        raise WwuPatchError(f"Patched Work Unit would be invalid XML: {exc}") from exc
+
+    return PreparedWwuPatch(
+        original_bytes=original,
+        patched_bytes=patched,
+        old_xml_path=old_xml_path,
+        new_xml_path=new_xml_path,
+        encoding=encoding,
+    )
+
+
+def write_prepared_patch(wwu_path: str | Path, patch: PreparedWwuPatch) -> None:
+    path = Path(wwu_path)
+    if path.read_bytes() != patch.original_bytes:
+        raise WwuPatchError("Work Unit changed after the patch was prepared")
+    path.write_bytes(patch.patched_bytes)
+
+
+def source_path_count_for_guid(
+    wwu_path: str | Path, *, object_guid: str, relative_path: str
+) -> int:
+    try:
+        root = ElementTree.parse(wwu_path).getroot()
+    except (OSError, ElementTree.ParseError) as exc:
+        raise WwuParseError(f"Unable to parse Wwise work unit {wwu_path}: {exc}") from exc
+    sounds = [
+        node
+        for node in root.iter()
+        if _local_name(node.tag) == "Sound"
+        and node.get("ID", "").casefold() == object_guid.casefold()
+    ]
+    if len(sounds) != 1:
+        return 0
+    expected = _canonical_source_path(relative_path)
+    return sum(
+        node.text is not None and _canonical_source_path(node.text) == expected
+        for node in _children_named(sounds[0], "AudioFile")
+    )
+
+
+def _canonical_source_path(value: str) -> str:
+    normalized = value.strip().replace("\\", "/").lstrip("/")
+    if not normalized.casefold().startswith("originals/"):
+        normalized = f"Originals/{normalized}"
+    return normalized.casefold()
+
+
+def _match_wwu_path_style(old_xml_path: str, new_relative_path: str) -> str:
+    normalized = new_relative_path.replace("\\", "/").lstrip("/")
+    if not old_xml_path.replace("\\", "/").casefold().startswith("originals/"):
+        if normalized.casefold().startswith("originals/"):
+            normalized = normalized[len("Originals/") :]
+    separator = "\\" if "\\" in old_xml_path else "/"
+    return normalized.replace("/", separator)
+
+
+def _detect_xml_encoding(data: bytes) -> str:
+    if data.startswith(codecs.BOM_UTF8):
+        return "utf-8-sig"
+    if data.startswith(codecs.BOM_UTF16_LE):
+        return "utf-16-le"
+    if data.startswith(codecs.BOM_UTF16_BE):
+        return "utf-16-be"
+    declaration = data[:256].decode("ascii", errors="ignore")
+    match = re.search(r"encoding=[\"']([^\"']+)[\"']", declaration, re.IGNORECASE)
+    return match.group(1) if match else "utf-8"

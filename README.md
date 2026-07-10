@@ -14,7 +14,8 @@ preserving both Wwise project integrity and Perforce history.
 
 ## Current status
 
-The current implementation provides a safe, read-only planning workflow:
+The current implementation provides planning and guarded single-file pilot
+execution:
 
 - parse `AudioFileSource` references from a `.wwu` file;
 - scan Wwise Sound and Audio File Source objects through WAAPI;
@@ -22,20 +23,26 @@ The current implementation provides a safe, read-only planning workflow:
 - generate JSON and Markdown relocation plans;
 - reject missing, multiple, shared, or ambiguous sources;
 - preflight filesystem and Perforce workspace state;
-- construct, but do not execute, `p4` commands in dry-run mode;
+- apply exactly one selected move through `p4 edit` and `p4 move`;
+- patch one GUID-scoped, exact WWU source path without XML reformatting;
+- write a rollback manifest before running any mutating Perforce command;
+- validate filesystem, WWU hash, Perforce move state, and the WWU diff;
+- validate Wwise GUID, object path, source path, and source existence via WAAPI;
+- roll back only the paths listed in the manifest;
 - exercise the behavior against a small fixture project.
 
-No file move, `.wwu` patch, changelist submission, or Wwise import behavior is
-implemented. Planning commands do not change project files.
+Batch apply, changelist submission, and Wwise import are not implemented.
+Planning commands remain read-only, and `apply` refuses to run unless `--only`
+selects exactly one safe move candidate.
 
 ## Requirements
 
 - Python 3.11 or newer
 - `pytest` to run the tests (development only)
-- `waapi-client` for live Wwise scanning
+- `waapi-client` for live Wwise scanning and validation
 
-The core parser and planner use only the Python standard library. Live scanning
-adds `waapi-client` as an optional dependency.
+The core parser, planner, and file patcher use only the Python standard library.
+Live Wwise access adds `waapi-client` as an optional dependency.
 
 Install the live-scanning extra with:
 
@@ -83,6 +90,42 @@ wwise-p4-source-relocator validate-plan \
 preflight error is present. It requires `p4` to be installed and the affected
 WAV and Work Unit paths to belong to the current Perforce workspace.
 
+## Run a single-file pilot
+
+After reviewing a valid plan, select exactly one WAV:
+
+```bash
+wwise-p4-source-relocator apply \
+  --plan reports/ch04-plan.json \
+  --only CH04_S102_WT_001.wav \
+  --changelist 123456 \
+  --manifest reports/pilot-manifest.json
+```
+
+The manifest is written before `p4 edit` or `p4 move`. If the WWU patch or local
+post-apply checks fail, the tool immediately attempts to revert only the moved
+WAV and edited Work Unit recorded in that manifest.
+
+Wwise must reload the externally changed Work Unit before live validation. In
+Wwise, accept the External Project Changes prompt and reload the affected Work
+Unit, then run:
+
+```bash
+wwise-p4-source-relocator validate-apply \
+  --manifest reports/pilot-manifest.json \
+  --report reports/pilot-validation.md
+```
+
+To restore the pilot without submitting anything:
+
+```bash
+wwise-p4-source-relocator rollback \
+  --manifest reports/pilot-manifest.json
+```
+
+`rollback` never issues a broad `p4 revert //...`; it uses only the exact paths
+recorded in the manifest.
+
 Run the tests with:
 
 ```bash
@@ -95,8 +138,8 @@ python -m pytest
 - The tool will never submit a changelist.
 - Exact source-path matching is required before patching a `.wwu`.
 - Ambiguous or shared sources must stop automation and require review.
-- Batch apply will not be implemented before a single-file pilot is validated.
-- Rollback manifests are mandatory for every future apply operation.
+- Batch apply is unavailable until a real single-file pilot is validated.
+- Rollback manifests are mandatory for every apply operation.
 
 See [the development specification](docs/development-spec.md) for the planned
 milestones and complete design.

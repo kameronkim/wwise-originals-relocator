@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .models import NoOpPlan, RelocationPlan, ScanResult, ValidationResult
+from .models import (
+    NoOpPlan,
+    RelocationPlan,
+    RollbackManifest,
+    ScanResult,
+    ValidationResult,
+)
 
 
 def write_json_plan(plan: NoOpPlan, output_path: str | Path) -> None:
@@ -32,6 +38,10 @@ def read_scan_result(input_path: str | Path) -> ScanResult:
 
 def read_relocation_plan(input_path: str | Path) -> RelocationPlan:
     return RelocationPlan.from_dict(_read_json_object(input_path))
+
+
+def read_rollback_manifest(input_path: str | Path) -> RollbackManifest:
+    return RollbackManifest.from_dict(_read_json_object(input_path))
 
 
 def render_markdown_plan(plan: NoOpPlan) -> str:
@@ -116,7 +126,7 @@ def render_relocation_plan(plan: RelocationPlan) -> str:
 
 def render_validation(result: ValidationResult) -> str:
     lines = [
-        "# Relocation Plan Validation",
+        "# Relocation Validation",
         "",
         f"- Valid: {'yes' if result.is_valid else 'no'}",
         f"- Issues: {len(result.issues)}",

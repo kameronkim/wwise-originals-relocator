@@ -87,6 +87,15 @@ class PreflightTests(unittest.TestCase):
 
         self.assertEqual("manual-review", result.issues[0].code)
 
+    def test_path_outside_project_is_a_hard_error(self) -> None:
+        item = move_item(from_relative_path="../outside.wav")
+
+        result = validate_relocation_plan(
+            plan_with(item), probe=FakeWorkspaceProbe()
+        )
+
+        self.assertIn("outside-project", {issue.code for issue in result.issues})
+
 
 if __name__ == "__main__":
     unittest.main()

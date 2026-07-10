@@ -35,6 +35,28 @@ class P4ClientTests(unittest.TestCase):
         with self.assertRaisesRegex(P4ExecutionDisabled, "execution is disabled"):
             client.run(client.where("Originals"))
 
+    def test_diff_and_revert_commands_are_exact_and_changelist_scoped(self) -> None:
+        client = P4Client()
+
+        diff = client.diff("Actor-Mixer Hierarchy/Default Work Unit.wwu")
+        revert = client.revert(
+            "source.wav", "target.wav", changelist="123456"
+        )
+
+        self.assertEqual(
+            (
+                "p4",
+                "diff",
+                "-du",
+                "Actor-Mixer Hierarchy/Default Work Unit.wwu",
+            ),
+            diff.argv,
+        )
+        self.assertEqual(
+            ("p4", "revert", "-c", "123456", "source.wav", "target.wav"),
+            revert.argv,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
