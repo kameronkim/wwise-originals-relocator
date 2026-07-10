@@ -9,6 +9,7 @@ from .applier import ApplyError, apply_single_file
 from .p4_client import P4Client
 from .planner import build_noop_plan, build_relocation_plan
 from .preflight import validate_relocation_plan
+from .readiness import inspect_pilot_readiness, render_readiness_markdown
 from .report import (
     read_relocation_plan,
     read_rollback_manifest,
@@ -82,6 +83,15 @@ def build_parser() -> argparse.ArgumentParser:
         "rollback", help="Revert only files recorded in a rollback manifest"
     )
     rollback.add_argument("--manifest", required=True, type=Path)
+
+    doctor = subparsers.add_parser(
+        "doctor", help="Check whether a Wwise project is ready for a pilot"
+    )
+    doctor.add_argument("--project-root", required=True, type=Path)
+    doctor.add_argument("--json-out", type=Path)
+    doctor.add_argument("--markdown-out", type=Path)
+    doctor.add_argument("--waapi-host", default="127.0.0.1")
+    doctor.add_argument("--waapi-port", default=8080, type=int)
     return parser
 
 
@@ -174,4 +184,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(render_validation(result), end="")
         return 0 if result.is_valid else 1
+    if args.command == "doctor":
+        readiness = inspect_pilot_readiness(
+            args.project_root,
+            waapi_host=args.waapi_host,
+            waapi_port=args.waapi_port,
+        )
+        if args.json_out:
+            write_json_document(readiness, args.json_out)
+        markdown = render_readiness_markdown(readiness)
+        if args.markdown_out:
+            args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
+            args.markdown_out.write_text(markdown, encoding="utf-8")
+        print(markdown, end="")
+        return 0 if readiness.ready else 1
     raise AssertionError(f"Unhandled command: {args.command}")

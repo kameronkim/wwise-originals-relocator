@@ -50,6 +50,21 @@ Install the live-scanning extra with:
 python -m pip install -e ".[waapi]"
 ```
 
+## Check pilot readiness
+
+Before selecting a file, verify the local project and toolchain:
+
+```bash
+wwise-p4-source-relocator doctor \
+  --project-root "D:\Work\Dev\Ilias\Ilias_WwiseProject" \
+  --json-out reports/pilot-readiness.json \
+  --markdown-out reports/pilot-readiness.md
+```
+
+The command checks for one Wwise project file, Originals WAV files, WWU source
+references, the `p4` CLI and workspace mapping, `waapi-client`, and a reachable
+WAAPI server. It performs no project or Perforce mutations.
+
 ## Try the source inspector
 
 From the repository root:
