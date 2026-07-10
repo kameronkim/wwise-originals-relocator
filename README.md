@@ -14,25 +14,34 @@ preserving both Wwise project integrity and Perforce history.
 
 ## Current status
 
-The initial source-inspection foundation is implemented as a safe, read-only
-workflow:
+The current implementation provides a safe, read-only planning workflow:
 
 - parse `AudioFileSource` references from a `.wwu` file;
-- emit a no-op JSON plan and Markdown report;
+- scan Wwise Sound and Audio File Source objects through WAAPI;
+- classify `Cutscene`, `Script`, `Dialog`, and `Dynamic` tree categories;
+- generate JSON and Markdown relocation plans;
+- reject missing, multiple, shared, or ambiguous sources;
+- preflight filesystem and Perforce workspace state;
 - construct, but do not execute, `p4` commands in dry-run mode;
 - exercise the behavior against a small fixture project.
 
 No file move, `.wwu` patch, changelist submission, or Wwise import behavior is
-implemented yet.
+implemented. Planning commands do not change project files.
 
 ## Requirements
 
 - Python 3.11 or newer
 - `pytest` to run the tests (development only)
+- `waapi-client` for live Wwise scanning
 
-The current runtime uses only the Python standard library. Later features will
-add the dependencies needed for WAAPI access, validated models, and console
-output.
+The core parser and planner use only the Python standard library. Live scanning
+adds `waapi-client` as an optional dependency.
+
+Install the live-scanning extra with:
+
+```bash
+python -m pip install -e ".[waapi]"
+```
 
 ## Try the source inspector
 
@@ -49,6 +58,30 @@ PYTHONPATH=src python -m wwise_p4_source_relocator inspect-wwu \
 The generated plan is intentionally no-op: every discovered source is marked
 `skip` with an inspection-only reason. This establishes source discovery and
 report formats without implying that relocation is safe to apply.
+
+## Scan and build a relocation plan
+
+With Wwise running and WAAPI enabled:
+
+```bash
+wwise-p4-source-relocator scan \
+  --project-root "D:\Work\Dev\Ilias\Ilias_WwiseProject" \
+  --object-root "\\Containers\\Default Work Unit\\VO\\Temp_VO" \
+  --chapter CH04 \
+  --out reports/ch04-scan.json
+
+wwise-p4-source-relocator plan \
+  --scan reports/ch04-scan.json \
+  --out reports/ch04-plan.json
+
+wwise-p4-source-relocator validate-plan \
+  --plan reports/ch04-plan.json \
+  --report reports/ch04-validation.md
+```
+
+`validate-plan` exits with a non-zero status when a manual-review item or hard
+preflight error is present. It requires `p4` to be installed and the affected
+WAV and Work Unit paths to belong to the current Perforce workspace.
 
 Run the tests with:
 

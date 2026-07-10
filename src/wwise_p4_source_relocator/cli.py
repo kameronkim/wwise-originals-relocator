@@ -4,8 +4,18 @@ import argparse
 from pathlib import Path
 from typing import Sequence
 
-from .planner import build_noop_plan
-from .report import write_json_plan, write_markdown_plan
+from .planner import build_noop_plan, build_relocation_plan
+from .preflight import validate_relocation_plan
+from .report import (
+    read_relocation_plan,
+    read_scan_result,
+    render_relocation_plan,
+    render_validation,
+    write_json_document,
+    write_json_plan,
+    write_markdown_plan,
+)
+from .waapi_reader import scan_live
 from .wwise_xml import parse_source_references
 
 
@@ -20,15 +30,36 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("--project-root", required=True, type=Path)
     inspect.add_argument("--json-out", required=True, type=Path)
     inspect.add_argument("--markdown-out", required=True, type=Path)
+
+    scan = subparsers.add_parser("scan", help="Read Wwise objects and source paths")
+    scan.add_argument("--project-root", required=True, type=Path)
+    scan.add_argument("--object-root", required=True)
+    scan.add_argument("--chapter", required=True)
+    scan.add_argument("--out", required=True, type=Path)
+    scan.add_argument("--waapi-url")
+
+    plan = subparsers.add_parser("plan", help="Build a dry-run relocation plan")
+    plan.add_argument("--scan", required=True, type=Path)
+    plan.add_argument(
+        "--rule",
+        default="tree-category-to-originals-folder",
+        choices=("tree-category-to-originals-folder",),
+    )
+    plan.add_argument("--out", required=True, type=Path)
+    plan.add_argument("--markdown-out", type=Path)
+
+    validate = subparsers.add_parser(
+        "validate-plan", help="Run filesystem and Perforce preflight checks"
+    )
+    validate.add_argument("--plan", required=True, type=Path)
+    validate.add_argument("--report", type=Path)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "inspect-wwu":
-        references = parse_source_references(
-            args.wwu, project_root=args.project_root
-        )
+        references = parse_source_references(args.wwu, project_root=args.project_root)
         plan = build_noop_plan(args.project_root, references)
         write_json_plan(plan, args.json_out)
         write_markdown_plan(plan, args.markdown_out)
@@ -37,4 +68,37 @@ def main(argv: Sequence[str] | None = None) -> int:
             "wrote a no-op plan and performed no mutations."
         )
         return 0
+    if args.command == "scan":
+        result = scan_live(
+            project_root=args.project_root,
+            object_root=args.object_root,
+            chapter=args.chapter,
+            url=args.waapi_url,
+        )
+        write_json_document(result, args.out)
+        print(f"Scanned {len(result.items)} Wwise object(s); wrote {args.out}.")
+        return 0
+    if args.command == "plan":
+        scan_result = read_scan_result(args.scan)
+        plan = build_relocation_plan(scan_result)
+        write_json_document(plan, args.out)
+        markdown_path = args.markdown_out or args.out.with_suffix(".md")
+        markdown = render_relocation_plan(plan)
+        markdown_path.parent.mkdir(parents=True, exist_ok=True)
+        markdown_path.write_text(markdown, encoding="utf-8")
+        move_count = sum(item.action == "move-and-patch" for item in plan.items)
+        print(
+            f"Planned {move_count} move(s); wrote {args.out} and {markdown_path}. "
+            "No files were changed."
+        )
+        return 0
+    if args.command == "validate-plan":
+        plan = read_relocation_plan(args.plan)
+        result = validate_relocation_plan(plan)
+        report = render_validation(result)
+        if args.report:
+            args.report.parent.mkdir(parents=True, exist_ok=True)
+            args.report.write_text(report, encoding="utf-8")
+        print(report, end="")
+        return 0 if result.is_valid else 1
     raise AssertionError(f"Unhandled command: {args.command}")

@@ -14,6 +14,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+waapi = ["waapi-client"]
 
 [project.scripts]
 wwise-p4-source-relocator = "wwise_p4_source_relocator.cli:main"
