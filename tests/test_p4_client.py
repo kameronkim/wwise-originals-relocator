@@ -1,8 +1,11 @@
 from pathlib import Path
+import subprocess
 import unittest
+from unittest.mock import patch
 
 from wwise_p4_source_relocator.p4_client import (
     P4Client,
+    P4CommandError,
     P4ExecutionDisabled,
 )
 
@@ -56,6 +59,38 @@ class P4ClientTests(unittest.TestCase):
             ("p4", "revert", "-c", "123456", "source.wav", "target.wav"),
             revert.argv,
         )
+
+    def test_run_treats_p4_error_output_as_failure_when_exit_code_is_zero(self) -> None:
+        client = P4Client(dry_run=False)
+        completed = subprocess.CompletedProcess(
+            ("p4",),
+            0,
+            stdout="error: file(s) not opened on this client.\n",
+            stderr="",
+        )
+
+        with patch("subprocess.run", return_value=completed) as run:
+            with self.assertRaises(P4CommandError):
+                client.run(client.move("source.wav", "target.wav"))
+
+        self.assertEqual(
+            ("p4", "-s", "move", "source.wav", "target.wav"),
+            run.call_args.args[0],
+        )
+
+    def test_run_removes_p4_status_prefixes_from_success_output(self) -> None:
+        client = P4Client(dry_run=False)
+        completed = subprocess.CompletedProcess(
+            ("p4",),
+            0,
+            stdout="info1: opened for edit\ntext: +patched line\nexit: 0\n",
+            stderr="",
+        )
+
+        with patch("subprocess.run", return_value=completed):
+            result = client.run(client.diff("Default Work Unit.wwu"))
+
+        self.assertEqual("opened for edit\n+patched line\n", result.stdout)
 
 
 if __name__ == "__main__":

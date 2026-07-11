@@ -87,6 +87,7 @@ def apply_single_file(
 
     try:
         p4.run(p4.edit(work_unit, changelist=changelist))
+        p4.run(p4.edit(source, changelist=changelist))
         p4.run(p4.move(source, target, changelist=changelist))
         write_prepared_patch(work_unit, patch)
         validation = validate_applied_manifest(manifest, p4=p4)

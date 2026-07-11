@@ -154,6 +154,8 @@ class ApplyRollbackTests(unittest.TestCase):
         target = self.project_root / manifest.moves[0].to_relative_path
         self.assertTrue(validation.is_valid)
         self.assertTrue(p4.manifest_prepared_before_mutation)
+        mutation_operations = [call[1] for call in p4.calls[:3]]
+        self.assertEqual(["edit", "edit", "move"], mutation_operations)
         self.assertEqual("applied", manifest.status)
         self.assertFalse(source.exists())
         self.assertTrue(target.is_file())

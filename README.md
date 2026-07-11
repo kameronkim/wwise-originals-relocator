@@ -23,7 +23,7 @@ execution:
 - generate JSON and Markdown relocation plans;
 - reject missing, multiple, shared, or ambiguous sources;
 - preflight filesystem and Perforce workspace state;
-- apply exactly one selected move through `p4 edit` and `p4 move`;
+- open the WWU and source WAV with `p4 edit`, then relocate through `p4 move`;
 - patch one GUID-scoped, exact WWU source path without XML reformatting;
 - write a rollback manifest before running any mutating Perforce command;
 - validate filesystem, WWU hash, Perforce move state, and the WWU diff;
@@ -140,6 +140,10 @@ wwise-p4-source-relocator rollback \
 
 `rollback` never issues a broad `p4 revert //...`; it uses only the exact paths
 recorded in the manifest.
+
+If no shared Perforce environment is available, follow the
+[local disposable Perforce pilot](docs/local-perforce-pilot.md) to validate the
+real move and rollback behavior without touching a production depot.
 
 Run the tests with:
 

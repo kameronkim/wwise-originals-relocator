@@ -5,6 +5,7 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+.tools/
 
 # Generated operator output; keep the directory itself in Git.
 reports/*

@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 import subprocess
 
 
 class P4ExecutionDisabled(RuntimeError):
     """Raised when code attempts to execute through a dry-run client."""
+
+
+class P4CommandError(subprocess.CalledProcessError):
+    """Raised when p4 reports an error even if its process exits successfully."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,9 +72,37 @@ class P4Client:
             raise P4ExecutionDisabled(
                 "p4 execution is disabled; construct and inspect commands only"
             )
-        return subprocess.run(
-            command.argv,
-            check=True,
+        argv = (command.argv[0], "-s", *command.argv[1:])
+        result = subprocess.run(
+            argv,
+            check=False,
             capture_output=True,
             text=True,
         )
+        status_output = f"{result.stdout}\n{result.stderr}"
+        has_reported_error = any(
+            line.startswith(("error:", "fatal:"))
+            for line in status_output.splitlines()
+        )
+        if result.returncode != 0 or has_reported_error:
+            raise P4CommandError(
+                result.returncode or 1,
+                argv,
+                output=result.stdout,
+                stderr=result.stderr,
+            )
+        return subprocess.CompletedProcess(
+            command.argv,
+            result.returncode,
+            stdout=_strip_status_prefixes(result.stdout),
+            stderr=result.stderr,
+        )
+
+
+def _strip_status_prefixes(output: str) -> str:
+    lines: list[str] = []
+    for line in output.splitlines(keepends=True):
+        if line.startswith("exit: "):
+            continue
+        lines.append(re.sub(r"^(?:info\d*|text): ", "", line))
+    return "".join(lines)
