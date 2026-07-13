@@ -1,0 +1,38 @@
+name: Build portable GUI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "feature/**"
+    paths:
+      - "src/wwise_p4_source_relocator/gui/**"
+      - "src/wwise_p4_source_relocator/readiness.py"
+      - "packaging/**"
+      - "scripts/build-portable.ps1"
+      - "pyproject.toml"
+      - ".github/workflows/portable.yml"
+
+jobs:
+  windows-portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Run tests
+        shell: pwsh
+        run: |
+          python -m pip install ".[dev]"
+          python -m pytest
+      - name: Build portable ZIP
+        shell: pwsh
+        run: ./scripts/build-portable.ps1
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: WwiseOriginalsRelocator-windows-x64
+          path: portable-dist/WwiseOriginalsRelocator-windows-x64.zip
+          if-no-files-found: error

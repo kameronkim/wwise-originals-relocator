@@ -37,6 +37,13 @@ only to create its isolated test fixture.
 Planning commands remain read-only, and `apply` refuses to run unless `--only`
 selects exactly one safe move candidate.
 
+The repository also contains a portable, read-only desktop GUI for
+non-programmer operators. It discovers an existing Wwise and Perforce setup,
+runs the readiness checks, builds a relocation plan, and stores reports beside
+the application. The GUI deliberately exposes no apply or rollback action and
+never installs production prerequisites. See the
+[portable GUI guide](docs/portable-gui.md).
+
 For a browser-ready Korean walkthrough of macOS and Windows installation,
 fixture tests, the disposable Wwise and Perforce pilot, live validation, and
 rollback, open the [testing and usage guide](docs/usage-guide.html).
@@ -49,6 +56,17 @@ rollback, open the [testing and usage guide](docs/usage-guide.html).
 
 The core parser, planner, and file patcher use only the Python standard library.
 Live Wwise access adds `waapi-client` as an optional dependency.
+
+For GUI development, install and launch the desktop extra:
+
+```bash
+python -m pip install -e ".[gui]"
+wwise-p4-source-relocator-gui
+```
+
+This dependency installation is for developers only. Operators receive a
+one-folder ZIP produced by `scripts/build-portable.ps1` or the **Build portable
+GUI** GitHub workflow and do not need Python.
 
 Install the live-scanning extra with:
 
