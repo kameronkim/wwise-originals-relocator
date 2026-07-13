@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wwise-p4-source-relocator"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Perforce-aware relocation of Wwise Originals WAV sources"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,6 +24,9 @@ wwise-p4-source-relocator-gui = "wwise_p4_source_relocator.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "wwise_p4_source_relocator.__version__" }
 
 [tool.setuptools.package-data]
 "wwise_p4_source_relocator.gui" = ["assets/*.html", "assets/*.css", "assets/*.js"]

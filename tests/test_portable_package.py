@@ -2,6 +2,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 
 from wwise_p4_source_relocator import __version__
@@ -11,6 +12,30 @@ REPO_ROOT = Path(__file__).parents[1]
 
 
 class PortablePackageTests(unittest.TestCase):
+    def test_release_metadata_uses_package_version(self) -> None:
+        config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+
+        self.assertEqual(["version"], config["project"]["dynamic"])
+        self.assertEqual(
+            {"attr": "wwise_p4_source_relocator.__version__"},
+            config["tool"]["setuptools"]["dynamic"]["version"],
+        )
+        self.assertTrue((REPO_ROOT / "CHANGELOG.md").is_file())
+        release_guide = (REPO_ROOT / "RELEASING.md").read_text(encoding="utf-8")
+        self.assertIn("A real multi-file project", release_guide)
+        self.assertIn("a Perforce workspace", release_guide)
+        self.assertIn("Do not tag or publish", release_guide)
+
+    def test_portable_workflow_covers_integration_branches_and_source(self) -> None:
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "portable.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('      - "feature/**"', workflow)
+        self.assertIn("      - develop", workflow)
+        self.assertIn("      - main", workflow)
+        self.assertIn('      - "src/**"', workflow)
+
     def test_canonical_usage_guide_is_gui_focused(self) -> None:
         guide = (REPO_ROOT / "docs" / "usage-guide.html").read_text(
             encoding="utf-8"

@@ -14,6 +14,12 @@ preserving both Wwise project integrity and Perforce history.
 
 ## Current status
 
+The repository is preparing the `0.1.0` release candidate. Automated tests,
+portable packaging, single-file live Wwise validation, and a disposable local
+Helix Core apply/rollback pilot are complete. A real multi-file Wwise and
+Perforce apply/validate/rollback pilot remains mandatory before creating the
+`v0.1.0` tag or publishing a release.
+
 The current implementation provides planning, guarded single-file CLI pilot
 execution, and selected-file GUI execution:
 
@@ -38,16 +44,17 @@ Planning commands remain read-only, and `apply` refuses to run unless `--only`
 selects exactly one safe move candidate.
 
 For non-programmer operators, the primary distribution is a portable desktop
-GUI. It requires no Python installation on the target PC. It
-uses the existing Wwise Authoring and Perforce CLI setup, runs readiness checks,
-builds a relocation plan, and stores reports beside the application. After a
-valid plan, the GUI can apply one or more selected WAVs through the same guarded
+GUI. It requires no Python installation on the target PC. It uses the existing
+Wwise Authoring and Perforce CLI setup, runs readiness checks, builds a
+relocation plan, and stores reports beside the application. After a valid plan,
+the GUI can apply one or more selected WAVs through the same guarded
 manifest-first contract as the CLI. All selected items are preflighted before
 mutation, share one changelist and manifest, and are rolled back in reverse if
-any item fails. It can also revalidate the applied files against the local filesystem, Perforce
-opened/diff state, and the live Wwise object after the operator reloads External
-Project Changes. It never submits a changelist or installs production
-prerequisites. See the [portable GUI guide](docs/portable-gui.md) and its
+any item fails. It can also revalidate the applied files against the local
+filesystem, Perforce opened/diff state, and the live Wwise object after the
+operator reloads External Project Changes. It never submits a changelist or
+installs production prerequisites. See the
+[portable GUI guide](docs/portable-gui.md) and its
 [offline HTML edition](docs/usage-guide.html).
 
 Successful GUI validation is stored beside the rollback manifest so it survives
@@ -92,8 +99,11 @@ wwise-p4-source-relocator-gui
 ```
 
 This dependency installation is for developers only. Operators receive a
-one-folder ZIP produced by `scripts/build-portable.ps1` or the **Build portable
-GUI** GitHub workflow and do not need Python.
+one-folder ZIP produced by `scripts/build-portable.ps1` on Windows,
+`scripts/build-portable.sh` on macOS, or the **Build portable GUI** GitHub
+workflow and do not need Python. The workflow validates the Windows x64
+artifact; a macOS ZIP is built and smoke-tested on the target Mac architecture
+before release.
 
 Install the live-scanning extra with:
 
@@ -248,5 +258,7 @@ python -m pytest
   stops on the first failure with reverse rollback of already moved files.
 - Rollback manifests are mandatory for every apply operation.
 
-See [the development specification](docs/development-spec.md) for the planned
-milestones and complete design.
+See [the development specification](docs/development-spec.md) for the safety
+contract and implementation status. Release candidates follow
+[the release procedure](RELEASING.md), and user-visible changes are recorded in
+[the changelog](CHANGELOG.md).

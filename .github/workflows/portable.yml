@@ -5,19 +5,21 @@ on:
   push:
     branches:
       - "feature/**"
+      - develop
       - main
     tags:
       - "v*"
     paths:
-      - "src/wwise_p4_source_relocator/gui/**"
-      - "src/wwise_p4_source_relocator/readiness.py"
-      - "src/wwise_p4_source_relocator/waapi_reader.py"
-      - "src/wwise_p4_source_relocator/waapi_transport.py"
+      - "src/**"
       - "packaging/**"
       - "scripts/**"
       - "docs/portable-gui.md"
       - "docs/usage-guide.html"
       - "docs/cli-operations-guide.html"
+      - "docs/development-spec.md"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "RELEASING.md"
       - "LICENSE"
       - "tests/**"
       - "pyproject.toml"
