@@ -1,11 +1,19 @@
 # Changelog
 
-All notable user-visible changes are recorded in this file. This project uses
-semantic version tags after the release gates in `RELEASING.md` pass.
+All notable user-visible changes are recorded in this file. Final semantic
+version tags require every release gate in `RELEASING.md`. A pre-release may be
+published with an explicitly documented outstanding live-validation gate.
 
 ## Unreleased
 
 Target: `v0.1.0`
+
+### Release gate
+
+- Complete and record one real multi-file Wwise and Perforce
+  apply/validate/rollback pilot before creating the final `v0.1.0` tag.
+
+## [0.1.0-rc.1] - 2026-07-14
 
 ### Added
 
@@ -30,8 +38,10 @@ Target: `v0.1.0`
 - A selected-file batch is fully preflighted before mutation and reverses
   completed moves if a later item fails.
 
-### Release gate
+### Validation status
 
-- Complete and record one real multi-file Wwise and Perforce
-  apply/validate/rollback pilot before moving these notes to `0.1.0`, creating
-  the `v0.1.0` tag, or publishing portable artifacts.
+- Automated selected-file batch tests, portable smoke tests, a live single-file
+  Wwise validation, and a disposable local Helix Core apply/rollback pilot are
+  complete.
+- A real multi-file Wwise and Perforce pilot remains outstanding; this build is
+  a release candidate and is not the final `v0.1.0` release.

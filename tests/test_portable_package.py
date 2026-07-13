@@ -24,7 +24,8 @@ class PortablePackageTests(unittest.TestCase):
         release_guide = (REPO_ROOT / "RELEASING.md").read_text(encoding="utf-8")
         self.assertIn("A real multi-file project", release_guide)
         self.assertIn("a Perforce workspace", release_guide)
-        self.assertIn("Do not tag or publish", release_guide)
+        self.assertIn("Do not create a final version tag", release_guide)
+        self.assertIn("A tagged GitHub pre-release", release_guide)
 
     def test_portable_workflow_covers_integration_branches_and_source(self) -> None:
         workflow = (

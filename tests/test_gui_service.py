@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from wwise_p4_source_relocator import __version__
 from wwise_p4_source_relocator.applier import ApplyError
 from wwise_p4_source_relocator.gui.bridge import GuiApi
 from wwise_p4_source_relocator.gui.service import (
@@ -268,7 +269,7 @@ class PortableGuiServiceTests(unittest.TestCase):
                 },
                 state["capabilities"],
             )
-            self.assertEqual("0.1.0", state["system"]["appVersion"])
+            self.assertEqual(__version__, state["system"]["appVersion"])
             self.assertEqual([], state["operationHistory"]["entries"])
 
     def test_operation_history_is_sorted_and_filtered_to_selected_project(self) -> None:

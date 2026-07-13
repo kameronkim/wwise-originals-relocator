@@ -14,11 +14,11 @@ preserving both Wwise project integrity and Perforce history.
 
 ## Current status
 
-The repository is preparing the `0.1.0` release candidate. Automated tests,
-portable packaging, single-file live Wwise validation, and a disposable local
-Helix Core apply/rollback pilot are complete. A real multi-file Wwise and
-Perforce apply/validate/rollback pilot remains mandatory before creating the
-`v0.1.0` tag or publishing a release.
+The current published candidate is `v0.1.0-rc.1`. Automated tests, portable
+packaging, single-file live Wwise validation, and a disposable local Helix Core
+apply/rollback pilot are complete. A real multi-file Wwise and Perforce
+apply/validate/rollback pilot remains mandatory before creating the final
+`v0.1.0` tag.
 
 The current implementation provides planning, guarded single-file CLI pilot
 execution, and selected-file GUI execution:
