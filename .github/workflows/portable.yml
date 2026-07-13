@@ -5,21 +5,34 @@ on:
   push:
     branches:
       - "feature/**"
+      - main
+    tags:
+      - "v*"
     paths:
       - "src/wwise_p4_source_relocator/gui/**"
       - "src/wwise_p4_source_relocator/readiness.py"
       - "packaging/**"
-      - "scripts/build-portable.ps1"
+      - "scripts/**"
+      - "docs/portable-gui.*"
+      - "LICENSE"
       - "tests/**"
       - "pyproject.toml"
       - ".github/workflows/portable.yml"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   windows-portable:
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -31,9 +44,18 @@ jobs:
       - name: Build portable ZIP
         shell: pwsh
         run: ./scripts/build-portable.ps1
+      - name: Smoke test portable executable
+        shell: pwsh
+        run: |
+          $env:WWISE_RELOCATOR_SMOKE_TEST = "1"
+          & "./dist/WwiseOriginalsRelocator/WwiseOriginalsRelocator.exe"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Portable executable smoke test failed."
+          }
       - name: Upload portable app
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: WwiseOriginalsRelocator-windows-x64
           path: dist/WwiseOriginalsRelocator/
           if-no-files-found: error
+          retention-days: 14

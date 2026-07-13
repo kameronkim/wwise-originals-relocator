@@ -21,7 +21,10 @@ try {
         throw "PyInstaller build failed."
     }
 
-    Copy-Item "docs/portable-gui.md" (Join-Path $AppRoot "사용가이드.md") -Force
+    python "scripts/prepare_portable.py" --app-root $AppRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "Portable metadata preparation failed."
+    }
     New-Item -ItemType Directory -Path $ResolvedOutputRoot -Force | Out-Null
     if (Test-Path $ArchivePath) {
         Remove-Item $ArchivePath -Force

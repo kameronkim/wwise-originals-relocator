@@ -37,12 +37,18 @@ only to create its isolated test fixture.
 Planning commands remain read-only, and `apply` refuses to run unless `--only`
 selects exactly one safe move candidate.
 
-The repository also contains a portable, read-only desktop GUI for
-non-programmer operators. It discovers an existing Wwise and Perforce setup,
-runs the readiness checks, builds a relocation plan, and stores reports beside
-the application. The GUI deliberately exposes no apply or rollback action and
-never installs production prerequisites. See the
-[portable GUI guide](docs/portable-gui.md).
+For non-programmer operators, the primary distribution is a portable,
+read-only desktop GUI. It requires no Python installation on the target PC. It
+uses the existing Wwise Authoring and Perforce CLI setup, runs readiness checks,
+builds a relocation plan, and stores reports beside the application. The GUI
+deliberately exposes no apply or rollback action and never installs production
+prerequisites. See the
+[portable GUI guide](docs/portable-gui.md) and its
+[offline HTML edition](docs/portable-gui.html).
+
+The repository also retains the CLI for developers and validation operators. It
+can perform the guarded single-file pilot described above. GUI read-only scope
+does not remove or broaden that separate CLI contract.
 
 For a browser-ready Korean walkthrough of macOS and Windows installation,
 fixture tests, the disposable Wwise and Perforce pilot, live validation, and

@@ -7,7 +7,7 @@ output_root="${1:-portable-dist}"
 cd "$repo_root"
 python -m pip install ".[portable]"
 python -m PyInstaller --noconfirm --clean packaging/wwise-relocator.spec
-cp docs/portable-gui.md dist/WwiseOriginalsRelocator/사용가이드.md
+python scripts/prepare_portable.py --app-root dist/WwiseOriginalsRelocator
 mkdir -p "$output_root"
 
 archive="$output_root/WwiseOriginalsRelocator-macos.zip"

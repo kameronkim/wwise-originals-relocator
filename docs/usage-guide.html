@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Wwise P4 Source Relocator의 설치, 테스트, 단일 파일 적용, 검증, 롤백 가이드">
+  <meta name="description" content="Wwise P4 Source Relocator의 고급 테스트, 단일 파일 적용, 검증, 롤백 가이드">
   <link rel="icon" href="data:,">
-  <title>Wwise P4 Source Relocator | 테스트 및 사용 가이드</title>
+  <title>Wwise P4 Source Relocator | 고급 테스트 및 CLI 운영 가이드</title>
   <style>
     :root {
       --bg: #f4f2ed;
@@ -387,10 +387,10 @@
 
   <div class="page-shell">
     <header class="hero">
-      <p class="eyebrow">Operations Guide · v0.2</p>
-      <h1>테스트 및 사용 가이드</h1>
+      <p class="eyebrow">Advanced Operations Guide · v0.3</p>
+      <h1>고급 테스트 및 CLI 운영 가이드</h1>
       <p class="hero-copy">
-        Wwise Originals의 WAV를 Perforce 이력을 보존하면서 옮기고, WWU 참조·Wwise 객체 GUID·롤백 가능성을 단계별로 검증하는 실무 절차입니다.
+        개발·검증 담당자가 Wwise Originals의 WAV를 Perforce 이력을 보존하면서 옮기고, WWU 참조·Wwise 객체 GUID·롤백 가능성을 단계별로 검증하는 절차입니다.
       </p>
       <div class="hero-meta" aria-label="가이드 특성">
         <span class="tag">단일 파일 안전 게이트</span>
@@ -398,6 +398,7 @@
         <span class="tag">WAAPI 검증</span>
         <span class="tag">Manifest 롤백</span>
         <span class="tag">macOS · Windows</span>
+        <span class="tag">고급 CLI 전용</span>
       </div>
     </header>
 
@@ -405,24 +406,49 @@
       <nav class="toc" aria-label="문서 목차">
         <p class="toc-title">Contents</p>
         <ol>
-          <li><a href="#overview">1. 먼저 알아둘 것</a></li>
-          <li><a href="#install">2. 설치와 기본 테스트</a></li>
-          <li><a href="#readonly">3. 읽기 전용 점검</a></li>
-          <li><a href="#pilot-project">4. Wwise 테스트 프로젝트</a></li>
-          <li><a href="#perforce">5. 로컬 Perforce</a></li>
-          <li><a href="#live-flow">6. macOS 통합 테스트</a></li>
-          <li><a href="#windows-flow">7. Windows 통합 테스트</a></li>
-          <li><a href="#evidence">8. 성공 판정 기준</a></li>
-          <li><a href="#troubleshooting">9. 문제 해결</a></li>
-          <li><a href="#production">10. 실제 프로젝트 적용</a></li>
-          <li><a href="#reference">11. 명령어 요약</a></li>
+          <li><a href="#portable">1. 일반 사용자용 Portable GUI</a></li>
+          <li><a href="#overview">2. CLI에서 먼저 알아둘 것</a></li>
+          <li><a href="#install">3. 설치와 기본 테스트</a></li>
+          <li><a href="#readonly">4. 읽기 전용 점검</a></li>
+          <li><a href="#pilot-project">5. Wwise 테스트 프로젝트</a></li>
+          <li><a href="#perforce">6. 로컬 Perforce</a></li>
+          <li><a href="#live-flow">7. macOS 통합 테스트</a></li>
+          <li><a href="#windows-flow">8. Windows 통합 테스트</a></li>
+          <li><a href="#evidence">9. 성공 판정 기준</a></li>
+          <li><a href="#troubleshooting">10. 문제 해결</a></li>
+          <li><a href="#production">11. 실제 프로젝트 적용</a></li>
+          <li><a href="#reference">12. 명령어 요약</a></li>
         </ol>
       </nav>
 
       <main id="main">
+        <section id="portable">
+          <span class="section-label">Recommended for operators</span>
+          <h2>일반 사용자는 Portable GUI부터 시작하세요</h2>
+          <p class="lede">프로그래밍이나 CLI 작업이 필요하지 않은 사용자는 Windows artifact의 <code>WwiseOriginalsRelocator.exe</code>를 사용합니다.</p>
+
+          <div class="cards">
+            <article class="card">
+              <h3>한 번만 압축 해제</h3>
+              <p>실행 파일과 <code>_internal</code> 폴더를 함께 유지하면 Python 설치 없이 실행할 수 있습니다.</p>
+            </article>
+            <article class="card">
+              <h3>읽기 전용 GUI</h3>
+              <p>환경 확인, 이동 계획, 사전 검증 사유와 보고서만 제공합니다. apply와 rollback은 노출하지 않습니다.</p>
+            </article>
+          </div>
+
+          <div class="callout safe">
+            <strong>Portable 배포물 구성</strong>
+            <p><code>WwiseOriginalsRelocator.exe</code>, <code>_internal</code>, <code>사용가이드.html</code>, <code>LICENSE.txt</code>, <code>VERSION.txt</code>가 함께 있어야 합니다.</p>
+          </div>
+          <p>화면 중심 사용법은 <a href="portable-gui.html">Portable GUI 오프라인 가이드</a>를 확인하세요. 아래 절부터는 단일 파일 apply/rollback을 검증하는 개발·운영 담당자용 CLI 절차입니다.</p>
+          <a class="back" href="#top">맨 위로 ↑</a>
+        </section>
+
         <section id="overview">
           <span class="section-label">Start here</span>
-          <h2>먼저 알아둘 것</h2>
+          <h2>CLI에서 먼저 알아둘 것</h2>
           <p class="lede">
             이 도구의 기본 단위는 <strong>검토가 끝난 WAV 한 파일</strong>입니다. 계획 단계까지는 읽기 전용이며, 실제 변경은 반드시 명시적인 <code>apply --only</code>와 롤백 manifest를 통해서만 진행합니다.
           </p>
