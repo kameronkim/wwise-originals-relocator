@@ -10,6 +10,7 @@ on:
       - "src/wwise_p4_source_relocator/readiness.py"
       - "packaging/**"
       - "scripts/build-portable.ps1"
+      - "tests/**"
       - "pyproject.toml"
       - ".github/workflows/portable.yml"
 
