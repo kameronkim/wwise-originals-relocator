@@ -15,8 +15,8 @@ class GuiAssetTests(unittest.TestCase):
     def test_desktop_assets_are_packaged_together(self) -> None:
         index = (ASSET_ROOT / "index.html").read_text(encoding="utf-8")
 
-        self.assertIn('href="styles.css?v=8"', index)
-        self.assertIn('src="app.js?v=8"', index)
+        self.assertIn('href="styles.css?v=9"', index)
+        self.assertIn('src="app.js?v=9"', index)
         self.assertTrue((ASSET_ROOT / "styles.css").is_file())
         self.assertTrue((ASSET_ROOT / "app.js").is_file())
 
