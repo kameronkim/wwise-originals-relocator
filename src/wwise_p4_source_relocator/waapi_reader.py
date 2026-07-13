@@ -8,7 +8,11 @@ from typing import Protocol
 from urllib.parse import urlparse
 
 from .models import ScanResult, SourceItem
-from .readiness import waapi_websocket_is_reachable
+from .waapi_transport import (
+    HttpWaapiConnection,
+    WaapiCallError,
+    waapi_websocket_is_reachable,
+)
 
 
 class WaapiError(RuntimeError):
@@ -78,8 +82,20 @@ def scan_live(
 ) -> ScanResult:
     endpoint = url or "ws://127.0.0.1:8080/waapi"
     parsed = urlparse(endpoint)
+    if parsed.scheme in {"http", "https"} and parsed.hostname:
+        try:
+            return scan_with_connection(
+                HttpWaapiConnection(endpoint, timeout=timeout_seconds),
+                project_root=project_root,
+                object_root=object_root,
+                chapter=chapter,
+            )
+        except WaapiCallError as exc:
+            raise WaapiError(f"HTTP WAAPI scan failed: {exc}") from exc
     if parsed.scheme not in {"ws", "wss"} or not parsed.hostname:
-        raise WaapiError("WAAPI URL must use ws:// or wss://")
+        raise WaapiError(
+            "WAAPI URL must use ws://, wss://, http://, or https://"
+        )
     port = parsed.port or (443 if parsed.scheme == "wss" else 80)
     path = parsed.path or "/waapi"
     if parsed.query:

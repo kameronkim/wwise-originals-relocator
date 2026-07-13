@@ -126,6 +126,18 @@ function updateOfflineModePresentation() {
 }
 
 function renderReadiness(result) {
+  const connection = result.waapiConnection;
+  if (connection?.url) {
+    element('waapi-url').value = connection.url;
+    element('wwise-status').textContent = '자동 연결됨';
+    element('wwise-detail').textContent = `${connection.transport.toUpperCase()} · ${connection.url}`;
+  } else if (result.waapiIssue === 'modal-dialog') {
+    element('wwise-status').textContent = 'Wwise 창 확인 필요';
+    element('wwise-detail').textContent = '열린 설정창을 닫은 뒤 다시 확인하세요';
+  } else if (result.waapiIssue === 'project-mismatch') {
+    element('wwise-status').textContent = '프로젝트 불일치';
+    element('wwise-detail').textContent = '선택한 프로젝트를 Wwise에서 열어 주세요';
+  }
   const list = element('readiness-list');
   list.replaceChildren();
   for (const check of result.checks || []) {
@@ -140,9 +152,12 @@ function renderReadiness(result) {
     const message = document.createElement('p');
     const skippedPerforce = result.offlineTestMode
       && ['p4-cli', 'p4-workspace'].includes(check.name);
+    const waapiMessage = check.name === 'waapi-server'
+      ? waapiReadinessMessage(result, check)
+      : null;
     message.textContent = skippedPerforce
       ? '로컬 테스트 모드에서는 이 Perforce 점검을 건너뜁니다.'
-      : (readinessMessages[check.name]?.[check.status] || check.message);
+      : (waapiMessage || readinessMessages[check.name]?.[check.status] || check.message);
     copy.append(title, message);
     item.append(symbol, copy);
     list.append(item);
@@ -157,6 +172,20 @@ function renderReadiness(result) {
     report.textContent = `환경 보고서: ${result.reports.markdown}`;
     report.hidden = false;
   }
+}
+
+function waapiReadinessMessage(result, check) {
+  if (check.status === 'pass' && result.waapiConnection) {
+    const transport = result.waapiConnection.transport.toUpperCase();
+    return `${transport} 연결을 자동으로 확인했습니다.`;
+  }
+  if (result.waapiIssue === 'modal-dialog') {
+    return 'Wwise에 열린 설정창이 있습니다. 창을 닫고 다시 확인하세요.';
+  }
+  if (result.waapiIssue === 'project-mismatch') {
+    return 'Wwise에 열린 프로젝트가 선택한 프로젝트 폴더와 다릅니다.';
+  }
+  return null;
 }
 
 function renderPlan(result) {
@@ -398,6 +427,7 @@ function loadPreview() {
   });
   renderReadiness({
     ready: true,
+    waapiConnection: {transport: 'http', url: 'http://127.0.0.1:8090/waapi'},
     checks: Object.keys(checkLabels).map((name) => ({name, status: 'pass', message: `${checkLabels[name]} 준비가 완료되었습니다.`})),
     reports: {markdown: 'data/reports/readiness.md'},
   });

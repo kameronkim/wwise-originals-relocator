@@ -2,11 +2,13 @@ import os
 from pathlib import Path
 import time
 import unittest
+from unittest.mock import patch
 
 from wwise_p4_source_relocator.waapi_reader import (
     WaapiError,
     _run_bounded_live_scan,
     build_scan_result,
+    scan_live,
     scan_with_connection,
 )
 
@@ -53,6 +55,25 @@ class FakeConnection:
 
 
 class WaapiReaderTests(unittest.TestCase):
+    def test_http_scan_uses_the_detected_rpc_endpoint(self) -> None:
+        connection = FakeConnection([])
+        with patch(
+            "wwise_p4_source_relocator.waapi_reader.HttpWaapiConnection",
+            return_value=connection,
+        ) as client:
+            result = scan_live(
+                project_root=FIXTURE_ROOT,
+                object_root=OBJECT_ROOT,
+                chapter="CH04",
+                url="http://127.0.0.1:8090/waapi",
+            )
+
+        client.assert_called_once_with(
+            "http://127.0.0.1:8090/waapi", timeout=20.0
+        )
+        self.assertEqual((), result.items)
+        self.assertEqual("ak.wwise.core.object.get", connection.calls[0][0])
+
     def test_bounded_scan_returns_a_timeout_instead_of_hanging(self) -> None:
         with self.assertRaisesRegex(WaapiError, "timed out"):
             _run_bounded_live_scan(

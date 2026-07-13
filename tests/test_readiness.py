@@ -58,7 +58,7 @@ class PilotReadinessTests(unittest.TestCase):
     def test_waapi_probe_rejects_a_plain_http_service(self) -> None:
         connection = FakeWebSocketConnection(b"HTTP/1.1 403 Forbidden\r\n\r\n")
         with patch(
-            "wwise_p4_source_relocator.readiness.socket.create_connection",
+            "wwise_p4_source_relocator.waapi_transport.socket.create_connection",
             return_value=connection,
         ):
             self.assertFalse(waapi_websocket_is_reachable("127.0.0.1", 8080))
@@ -66,7 +66,7 @@ class PilotReadinessTests(unittest.TestCase):
     def test_waapi_probe_accepts_the_wamp_websocket_handshake(self) -> None:
         connection = FakeWebSocketConnection()
         with patch(
-            "wwise_p4_source_relocator.readiness.socket.create_connection",
+            "wwise_p4_source_relocator.waapi_transport.socket.create_connection",
             return_value=connection,
         ):
             self.assertTrue(waapi_websocket_is_reachable("127.0.0.1", 8080))

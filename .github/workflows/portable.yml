@@ -12,6 +12,7 @@ on:
       - "src/wwise_p4_source_relocator/gui/**"
       - "src/wwise_p4_source_relocator/readiness.py"
       - "src/wwise_p4_source_relocator/waapi_reader.py"
+      - "src/wwise_p4_source_relocator/waapi_transport.py"
       - "packaging/**"
       - "scripts/**"
       - "docs/portable-gui.md"

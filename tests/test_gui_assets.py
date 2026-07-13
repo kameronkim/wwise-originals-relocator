@@ -16,7 +16,7 @@ class GuiAssetTests(unittest.TestCase):
         index = (ASSET_ROOT / "index.html").read_text(encoding="utf-8")
 
         self.assertIn('href="styles.css?v=5"', index)
-        self.assertIn('src="app.js?v=3"', index)
+        self.assertIn('src="app.js?v=4"', index)
         self.assertTrue((ASSET_ROOT / "styles.css").is_file())
         self.assertTrue((ASSET_ROOT / "app.js").is_file())
 

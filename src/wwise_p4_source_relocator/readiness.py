@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass
-import hashlib
 import importlib.util
-import os
 from pathlib import Path
 import shutil
-import socket
-import ssl
 import subprocess
 from typing import Literal
 
+from .waapi_transport import (
+    WaapiDetection,
+    WaapiEndpoint,
+    detect_waapi_endpoint,
+    waapi_websocket_is_reachable,
+)
 from .wwise_xml import WwuParseError, parse_source_references
 
 
@@ -32,16 +33,26 @@ class ReadinessCheck:
 class PilotReadiness:
     project_root: Path
     checks: tuple[ReadinessCheck, ...]
+    waapi_url: str | None = None
+    waapi_transport: str | None = None
+    waapi_issue: str | None = None
 
     @property
     def ready(self) -> bool:
         return all(check.status == "pass" for check in self.checks)
 
     def to_dict(self) -> dict[str, object]:
+        connection = (
+            {"url": self.waapi_url, "transport": self.waapi_transport}
+            if self.waapi_url and self.waapi_transport
+            else None
+        )
         return {
             "projectRoot": self.project_root.as_posix(),
             "ready": self.ready,
             "checks": [check.to_dict() for check in self.checks],
+            "waapiConnection": connection,
+            "waapiIssue": self.waapi_issue,
         }
 
 
@@ -57,6 +68,7 @@ def inspect_pilot_readiness(
     waapi_port: int = 8080,
     waapi_path: str = "/waapi",
     waapi_secure: bool = False,
+    waapi_url: str | None = None,
 ) -> PilotReadiness:
     root = Path(project_root).resolve()
     checks: list[ReadinessCheck] = []
@@ -144,43 +156,62 @@ def inspect_pilot_readiness(
         )
     )
 
+    configured_url = waapi_url or _build_waapi_url(
+        host=waapi_host,
+        port=waapi_port,
+        path=waapi_path,
+        secure=waapi_secure,
+    )
+    detection = (
+        detect_waapi_endpoint(configured_url, project_root=root)
+        if waapi_reachable is None
+        else WaapiDetection(
+            WaapiEndpoint("wamp", configured_url) if waapi_reachable else None,
+            (
+                f"WAAPI is reachable at {configured_url}"
+                if waapi_reachable
+                else f"WAAPI is not reachable at {configured_url}"
+            ),
+            None if waapi_reachable else "unreachable",
+        )
+    )
     client_available = (
-        importlib.util.find_spec("waapi") is not None
-        if waapi_client_available is None
-        else waapi_client_available
+        detection.endpoint is not None and detection.endpoint.transport == "http"
+        or (
+            importlib.util.find_spec("waapi") is not None
+            if waapi_client_available is None
+            else waapi_client_available
+        )
     )
     checks.append(
         _check(
             "waapi-client",
             client_available,
-            "waapi-client is installed"
+            (
+                "HTTP WAAPI transport is available"
+                if detection.endpoint is not None
+                and detection.endpoint.transport == "http"
+                else "waapi-client is installed"
+            )
             if client_available
             else "waapi-client is not installed",
         )
     )
-    reachable = (
-        waapi_websocket_is_reachable(
-            waapi_host,
-            waapi_port,
-            path=waapi_path,
-            secure=waapi_secure,
-        )
-        if waapi_reachable is None
-        else waapi_reachable
-    )
     checks.append(
         _check(
             "waapi-server",
-            reachable,
-            f"WAAPI WebSocket is reachable at {waapi_host}:{waapi_port}{waapi_path}"
-            if reachable
-            else (
-                "WAAPI did not accept a WAMP WebSocket connection at "
-                f"{waapi_host}:{waapi_port}{waapi_path}"
-            ),
+            detection.endpoint is not None,
+            detection.message,
         )
     )
-    return PilotReadiness(root, tuple(checks))
+    endpoint = detection.endpoint
+    return PilotReadiness(
+        root,
+        tuple(checks),
+        waapi_url=endpoint.url if endpoint else None,
+        waapi_transport=endpoint.transport if endpoint else None,
+        waapi_issue=detection.issue,
+    )
 
 
 def render_readiness_markdown(readiness: PilotReadiness) -> str:
@@ -227,60 +258,12 @@ def _executable_is_available(executable: str) -> bool:
     return shutil.which(executable) is not None
 
 
-def waapi_websocket_is_reachable(
-    host: str,
-    port: int,
-    *,
-    path: str = "/waapi",
-    secure: bool = False,
-    timeout: float = 0.5,
-) -> bool:
-    """Verify that an endpoint accepts the WebSocket protocol used by WAAPI."""
-
+def _build_waapi_url(
+    *, host: str, port: int, path: str, secure: bool
+) -> str:
+    scheme = "wss" if secure else "ws"
     normalized_path = path if path.startswith("/") else f"/{path}"
-    nonce = base64.b64encode(os.urandom(16)).decode("ascii")
-    expected_accept = base64.b64encode(
-        hashlib.sha1(
-            (nonce + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")
-        ).digest()
-    ).decode("ascii")
-    request = (
-        f"GET {normalized_path} HTTP/1.1\r\n"
-        f"Host: {host}:{port}\r\n"
-        "Upgrade: websocket\r\n"
-        "Connection: Upgrade\r\n"
-        f"Sec-WebSocket-Key: {nonce}\r\n"
-        "Sec-WebSocket-Version: 13\r\n"
-        "Sec-WebSocket-Protocol: wamp.2.json\r\n"
-        "\r\n"
-    ).encode("ascii")
-
-    try:
-        connection = socket.create_connection((host, port), timeout=timeout)
-        if secure:
-            context = ssl.create_default_context()
-            connection = context.wrap_socket(connection, server_hostname=host)
-        with connection:
-            connection.sendall(request)
-            response = connection.recv(8192).decode("latin-1")
-    except OSError:
-        return False
-
-    lines = response.split("\r\n")
-    if not lines or " 101 " not in f" {lines[0]} ":
-        return False
-    headers = {
-        name.strip().casefold(): value.strip()
-        for line in lines[1:]
-        if ":" in line
-        for name, value in (line.split(":", 1),)
-    }
-    return (
-        headers.get("upgrade", "").casefold() == "websocket"
-        and "upgrade" in headers.get("connection", "").casefold()
-        and headers.get("sec-websocket-accept") == expected_accept
-        and headers.get("sec-websocket-protocol", "").casefold() == "wamp.2.json"
-    )
+    return f"{scheme}://{host}:{port}{normalized_path}"
 
 
 def _escape(value: str) -> str:

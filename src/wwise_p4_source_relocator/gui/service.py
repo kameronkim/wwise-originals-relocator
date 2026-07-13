@@ -133,6 +133,7 @@ class ReadOnlyGuiService:
         settings = self.store.save(values)
         project_root = _project_root(settings)
         p4_executable = _p4_executable(settings)
+        configured_waapi_url = _required_setting(settings, "waapiUrl")
         waapi_host, waapi_port, waapi_path, waapi_secure = _waapi_endpoint(settings)
         offline_test_mode = _offline_test_mode(settings)
         readiness = self._readiness_inspector(
@@ -144,9 +145,11 @@ class ReadOnlyGuiService:
             waapi_port=waapi_port,
             waapi_path=waapi_path,
             waapi_secure=waapi_secure,
+            waapi_url=configured_waapi_url,
         )
         if offline_test_mode:
             readiness = _mark_perforce_skipped(readiness)
+        _save_detected_waapi_url(self.store, settings, readiness)
         report_root = self._new_report_root("doctor")
         json_path = report_root / "readiness.json"
         markdown_path = report_root / "readiness.md"
@@ -167,6 +170,7 @@ class ReadOnlyGuiService:
         settings = self.store.save(values)
         project_root = _project_root(settings)
         p4_executable = _p4_executable(settings)
+        configured_waapi_url = _required_setting(settings, "waapiUrl")
         waapi_host, waapi_port, waapi_path, waapi_secure = _waapi_endpoint(settings)
         offline_test_mode = _offline_test_mode(settings)
         readiness = self._readiness_inspector(
@@ -178,6 +182,7 @@ class ReadOnlyGuiService:
             waapi_port=waapi_port,
             waapi_path=waapi_path,
             waapi_secure=waapi_secure,
+            waapi_url=configured_waapi_url,
         )
         if offline_test_mode:
             readiness = _mark_perforce_skipped(readiness)
@@ -191,7 +196,8 @@ class ReadOnlyGuiService:
 
         object_root = _required_setting(settings, "objectRoot")
         chapter = _required_setting(settings, "chapter")
-        waapi_url = _required_setting(settings, "waapiUrl")
+        waapi_url = readiness.waapi_url or configured_waapi_url
+        _save_detected_waapi_url(self.store, settings, readiness)
         try:
             scan = self._scanner(
                 project_root=project_root,
@@ -234,6 +240,14 @@ class ReadOnlyGuiService:
             "objectRoot": object_root,
             "chapter": chapter,
             "offlineTestMode": offline_test_mode,
+            "waapiConnection": (
+                {
+                    "url": readiness.waapi_url,
+                    "transport": readiness.waapi_transport,
+                }
+                if readiness.waapi_url and readiness.waapi_transport
+                else None
+            ),
             "counts": counts,
             "items": [item.to_dict() for item in plan.items],
             "validation": validation.to_dict(),
@@ -319,7 +333,13 @@ def _mark_perforce_skipped(readiness: PilotReadiness) -> PilotReadiness:
         else check
         for check in readiness.checks
     )
-    return PilotReadiness(readiness.project_root, checks)
+    return PilotReadiness(
+        readiness.project_root,
+        checks,
+        waapi_url=readiness.waapi_url,
+        waapi_transport=readiness.waapi_transport,
+        waapi_issue=readiness.waapi_issue,
+    )
 
 
 def _waapi_endpoint(settings: Mapping[str, object]) -> tuple[str, int, str, bool]:
@@ -327,13 +347,29 @@ def _waapi_endpoint(settings: Mapping[str, object]) -> tuple[str, int, str, bool
     from urllib.parse import urlparse
 
     parsed = urlparse(url)
-    if parsed.scheme not in {"ws", "wss"} or not parsed.hostname:
-        raise GuiServiceError("WAAPI 주소는 ws:// 또는 wss:// 형식이어야 합니다.")
-    port = parsed.port or (443 if parsed.scheme == "wss" else 80)
+    if (
+        parsed.scheme not in {"ws", "wss", "http", "https"}
+        or not parsed.hostname
+    ):
+        raise GuiServiceError(
+            "WAAPI 주소는 ws://, wss://, http:// 또는 https:// 형식이어야 합니다."
+        )
+    secure = parsed.scheme in {"wss", "https"}
+    port = parsed.port or (443 if secure else 80)
     path = parsed.path or "/waapi"
     if parsed.query:
         path = f"{path}?{parsed.query}"
-    return parsed.hostname, port, path, parsed.scheme == "wss"
+    return parsed.hostname, port, path, secure
+
+
+def _save_detected_waapi_url(
+    store: PortableSettingsStore,
+    settings: Mapping[str, object],
+    readiness: PilotReadiness,
+) -> None:
+    if not readiness.waapi_url or readiness.waapi_url == settings.get("waapiUrl"):
+        return
+    store.save({**settings, "waapiUrl": readiness.waapi_url})
 
 
 def _required_setting(settings: Mapping[str, object], key: str) -> str:

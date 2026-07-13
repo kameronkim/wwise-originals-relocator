@@ -149,6 +149,44 @@ class ReadOnlyGuiServiceTests(unittest.TestCase):
                 all(Path(path).is_file() for path in result["reports"].values())
             )
 
+    def test_plan_uses_and_persists_an_automatically_detected_http_endpoint(
+        self,
+    ) -> None:
+        scan_calls: list[dict[str, object]] = []
+
+        def detected(project_root: str | Path, **_: object) -> PilotReadiness:
+            return PilotReadiness(
+                Path(project_root),
+                (ReadinessCheck("waapi-server", "pass", "HTTP detected"),),
+                waapi_url="http://127.0.0.1:8090/waapi",
+                waapi_transport="http",
+            )
+
+        def capture_scan(**values: object) -> ScanResult:
+            scan_calls.append(values)
+            return scan(**values)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(
+                root / "data",
+                readiness_inspector=detected,
+                scanner=capture_scan,
+            )
+
+            result = service.run_plan(self.settings(project_root))
+
+            self.assertEqual(
+                "http://127.0.0.1:8090/waapi", scan_calls[0]["url"]
+            )
+            self.assertEqual("http", result["waapiConnection"]["transport"])
+            self.assertEqual(
+                "http://127.0.0.1:8090/waapi",
+                service.store.load()["waapiUrl"],
+            )
+
     def test_plan_is_blocked_when_doctor_fails(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
