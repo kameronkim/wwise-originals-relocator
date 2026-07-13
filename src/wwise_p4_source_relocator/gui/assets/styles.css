@@ -62,14 +62,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px 
 .steps li.active > span { border-color: #6c96ad; background: #315066; color: var(--blue-strong); }
 .steps li.active strong { color: var(--text); }
 .steps li.done > span { border-color: var(--blue); color: var(--blue); }
-.safety-note { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 9px; margin-top: 30px; padding: 15px 13px; border: 1px solid #496575; border-radius: 12px; background: #263945; }
-.safety-note > span { color: var(--blue); font-size: 1.1rem; }
-.safety-note strong { display: block; font-size: 0.78rem; line-height: 1.45; word-break: keep-all; overflow-wrap: normal; }
-.safety-note p { margin: 4px 0 0; color: var(--muted); font-size: 0.7rem; line-height: 1.5; }
-.portable-note { margin-top: 14px; padding: 14px; border: 1px solid var(--line-soft); border-radius: 12px; }
-.portable-note span { color: var(--amber); font: 700 0.7rem var(--mono); text-transform: uppercase; }
-.portable-note p { margin: 5px 0 0; color: #96a4ad; font-size: 0.7rem; }
-
 .workspace { min-height: 0; overflow: auto; padding: 30px clamp(26px, 4vw, 54px) 44px; background: radial-gradient(circle at 92% 0%, rgba(111, 155, 183, 0.11), transparent 30rem), var(--bg); }
 .welcome-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; margin-bottom: 22px; }
 .section-kicker { margin: 0 0 6px; color: var(--blue); font-size: 0.7rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }

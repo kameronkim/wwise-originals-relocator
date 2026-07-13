@@ -48,7 +48,7 @@ def main() -> int:
             width=1180,
             height=780,
             min_size=(820, 620),
-            background_color="#0f1716",
+            background_color="#182128",
             text_select=True,
             zoomable=False,
         )
