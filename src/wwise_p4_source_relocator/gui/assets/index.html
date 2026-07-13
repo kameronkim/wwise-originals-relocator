@@ -215,10 +215,18 @@
             </div>
             <ol>
               <li>Wwise의 External Project Changes 안내에서 affected Work Unit을 다시 불러옵니다.</li>
-              <li>P4V에서 WAV move와 Work Unit diff를 검토합니다.</li>
-              <li>테스트가 끝나면 아래 Rollback으로 원래 상태를 복구합니다.</li>
+              <li><strong>Wwise 반영 확인</strong>으로 source와 Perforce 상태를 검증합니다.</li>
+              <li>테스트가 끝나면 Rollback으로 원래 상태를 복구합니다.</li>
             </ol>
-            <button id="run-rollback" class="secondary-button rollback-button" type="button">이 파일 Rollback</button>
+            <div class="active-actions">
+              <button id="run-validate-apply" class="primary-button validate-apply-button" type="button">Wwise 반영 확인</button>
+              <button id="run-rollback" class="secondary-button rollback-button" type="button">이 파일 Rollback</button>
+            </div>
+          </div>
+          <div id="apply-validation-result" class="apply-validation-result" hidden>
+            <strong id="apply-validation-title">적용 결과 확인</strong>
+            <p id="apply-validation-summary"></p>
+            <ul id="apply-validation-list"></ul>
           </div>
           <div id="apply-report" class="report-path" hidden></div>
         </section>
@@ -232,6 +240,6 @@
       <span id="app-version">v—</span>
     </footer>
   </div>
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>

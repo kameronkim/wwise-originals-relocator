@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from wwise_p4_source_relocator.applier import ApplyError, apply_single_file
 from wwise_p4_source_relocator.models import (
@@ -15,7 +16,10 @@ from wwise_p4_source_relocator.models import (
 from wwise_p4_source_relocator.p4_client import P4Client, P4Command
 from wwise_p4_source_relocator.report import read_rollback_manifest
 from wwise_p4_source_relocator.rollback import rollback_manifest
-from wwise_p4_source_relocator.validator import validate_live_wwise_manifest
+from wwise_p4_source_relocator.validator import (
+    validate_live_wwise_manifest,
+    validate_live_wwise_manifest_at_url,
+)
 
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "sample_project"
@@ -254,6 +258,41 @@ class ApplyRollbackTests(unittest.TestCase):
                 "wwise-source-missing",
             },
             {issue.code for issue in result.issues},
+        )
+
+    def test_live_validation_uses_http_waapi_endpoint(self) -> None:
+        p4 = FakeP4()
+        manifest, _ = apply_single_file(
+            build_plan(self.project_root),
+            only="CH04_S102_WT_001.wav",
+            changelist="123",
+            manifest_path=self.manifest_path,
+            p4=p4,
+            probe=CleanWorkspaceProbe(),
+        )
+        affected = manifest.affected_objects[0]
+        target = manifest.project_root / manifest.moves[0].to_relative_path
+        connection = FakeWaapiConnection(
+            {
+                "id": affected.guid,
+                "path": affected.object_path,
+                "originalRelativeFilePath": affected.after_source_relative_path,
+                "originalFilePath": str(target),
+            }
+        )
+
+        with patch(
+            "wwise_p4_source_relocator.validator.HttpWaapiConnection",
+            return_value=connection,
+        ) as client:
+            result = validate_live_wwise_manifest_at_url(
+                manifest,
+                url="http://127.0.0.1:8090/waapi",
+            )
+
+        self.assertTrue(result.is_valid)
+        client.assert_called_once_with(
+            "http://127.0.0.1:8090/waapi", timeout=20.0
         )
 
     @unittest.skipIf(

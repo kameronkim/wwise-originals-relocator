@@ -18,6 +18,7 @@ from wwise_p4_source_relocator.models import (
     RollbackManifest,
     ScanResult,
     SourceItem,
+    ValidationIssue,
     ValidationResult,
 )
 from wwise_p4_source_relocator.readiness import PilotReadiness, ReadinessCheck
@@ -200,6 +201,92 @@ class PortableGuiServiceTests(unittest.TestCase):
             self.assertTrue(rolled_back["rolledBack"])
             self.assertIsNone(rolled_back["activeOperation"])
             self.assertIsNone(service.initial_state()["activeOperation"])
+
+    def test_gui_validates_applied_file_against_perforce_and_live_wwise(self) -> None:
+        calls: list[tuple[str, object]] = []
+
+        def validate_applied(manifest, **values: object) -> ValidationResult:
+            calls.append(("local", values["p4"]))
+            return ValidationResult(())
+
+        def validate_live(manifest, **values: object) -> ValidationResult:
+            calls.append(("live", values["url"]))
+            return ValidationResult(())
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            p4 = object()
+            service = self.make_service(
+                root / "data",
+                applier=fake_apply,
+                applied_validator=validate_applied,
+                live_validator=validate_live,
+                p4_client_factory=lambda _: p4,
+                workspace_probe_factory=lambda _: object(),
+            )
+            settings = {
+                **self.settings(project_root),
+                "waapiUrl": "http://127.0.0.1:8090/waapi",
+            }
+            service.run_plan(settings)
+            service.run_apply(settings, "line.wav", "line.wav")
+
+            result = service.run_validate_apply(settings)
+
+            self.assertTrue(result["valid"])
+            self.assertTrue(result["activeOperation"]["validated"])
+            self.assertEqual(
+                [("local", p4), ("live", "http://127.0.0.1:8090/waapi")],
+                calls,
+            )
+            self.assertTrue(Path(result["reports"]["validation"]).is_file())
+
+    def test_gui_combines_post_apply_validation_issues(self) -> None:
+        local_issue = ValidationIssue("target-missing", "Target missing")
+        live_issue = ValidationIssue("wwise-source-mismatch", "Wwise stale")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(
+                root / "data",
+                applier=fake_apply,
+                applied_validator=lambda *_, **__: ValidationResult((local_issue,)),
+                live_validator=lambda *_, **__: ValidationResult((live_issue,)),
+                p4_client_factory=lambda _: object(),
+                workspace_probe_factory=lambda _: object(),
+            )
+            settings = self.settings(project_root)
+            service.run_plan(settings)
+            service.run_apply(settings, "line.wav", "line.wav")
+
+            result = service.run_validate_apply(settings)
+
+            self.assertFalse(result["valid"])
+            self.assertEqual(
+                ["target-missing", "wwise-source-mismatch"],
+                [issue["code"] for issue in result["validation"]["issues"]],
+            )
+
+    def test_gui_rejects_live_validation_for_failed_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(
+                root / "data",
+                applier=failed_apply_with_recovery_manifest,
+                p4_client_factory=lambda _: object(),
+                workspace_probe_factory=lambda _: object(),
+            )
+            settings = self.settings(project_root)
+            service.run_plan(settings)
+            service.run_apply(settings, "line.wav", "line.wav")
+
+            with self.assertRaisesRegex(GuiServiceError, "먼저 Rollback"):
+                service.run_validate_apply(settings)
 
     def test_offline_mode_cannot_apply_a_plan(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

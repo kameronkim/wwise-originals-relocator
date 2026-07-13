@@ -34,6 +34,10 @@ from ..report import (
     write_json_document,
 )
 from ..rollback import rollback_manifest
+from ..validator import (
+    validate_applied_manifest,
+    validate_live_wwise_manifest_at_url,
+)
 from ..waapi_reader import WaapiError, scan_live
 
 
@@ -105,6 +109,12 @@ class PortableGuiService:
         applier: Callable[
             ..., tuple[RollbackManifest, ValidationResult]
         ] = apply_single_file,
+        applied_validator: Callable[
+            ..., ValidationResult
+        ] = validate_applied_manifest,
+        live_validator: Callable[
+            ..., ValidationResult
+        ] = validate_live_wwise_manifest_at_url,
         rollbacker: Callable[..., ValidationResult] = rollback_manifest,
         p4_client_factory: Callable[[str], P4Client] | None = None,
         workspace_probe_factory: Callable[[str], P4WorkspaceProbe] | None = None,
@@ -115,6 +125,8 @@ class PortableGuiService:
         self._planner = planner
         self._plan_validator = plan_validator
         self._applier = applier
+        self._applied_validator = applied_validator
+        self._live_validator = live_validator
         self._rollbacker = rollbacker
         self._p4_client_factory = p4_client_factory or _live_p4_client
         self._workspace_probe_factory = (
@@ -380,6 +392,55 @@ class PortableGuiService:
                 "manifest": manifest_path.as_posix(),
                 "validation": validation_path.as_posix(),
             },
+        }
+
+    def run_validate_apply(
+        self,
+        values: Mapping[str, object],
+    ) -> dict[str, object]:
+        settings = self.store.save(values)
+        project_root = _project_root(settings)
+        if _offline_test_mode(settings):
+            raise GuiServiceError(
+                "Perforce 없는 로컬 테스트에서는 적용 결과를 검증할 수 없습니다."
+            )
+        active = self._active_manifests(project_root)
+        if len(active) != 1:
+            raise GuiServiceError(
+                "검증 가능한 단일 파일 manifest를 정확히 하나 찾을 수 없습니다."
+            )
+        manifest_path, manifest = active[0]
+        if manifest.status != "applied":
+            raise GuiServiceError(
+                "적용에 실패한 manifest입니다. 먼저 Rollback을 실행해 주세요."
+            )
+
+        p4 = self._p4_client_factory(_p4_executable(settings))
+        local = self._applied_validator(manifest, p4=p4)
+        try:
+            live = self._live_validator(
+                manifest,
+                url=_required_setting(settings, "waapiUrl"),
+            )
+        except RuntimeError as exc:
+            raise GuiServiceError(
+                "Wwise 적용 상태를 읽지 못했습니다. Wwise에서 External Project "
+                "Changes를 다시 불러오고 열린 설정창을 닫은 뒤 다시 확인해 주세요. "
+                f"세부 정보: {exc}"
+            ) from exc
+
+        result = ValidationResult(local.issues + live.issues)
+        report_root = self._new_report_root("validate-apply")
+        validation_path = report_root / "apply-validation.md"
+        validation_path.write_text(render_validation(result), encoding="utf-8")
+        return {
+            "valid": result.is_valid,
+            "validation": result.to_dict(),
+            "activeOperation": {
+                **_manifest_summary(manifest_path, manifest),
+                "validated": result.is_valid,
+            },
+            "reports": {"validation": validation_path.as_posix()},
         }
 
     def run_rollback(

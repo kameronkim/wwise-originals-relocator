@@ -67,6 +67,24 @@ const validationMessages = {
   'work-unit-missing': '관련 Work Unit 파일을 찾을 수 없습니다.',
   'outside-workspace': 'Perforce workspace 밖의 경로가 있습니다.',
   'already-opened': '다른 작업을 위해 이미 열린 파일이 있습니다.',
+  'source-still-exists': '이동 전 위치에 WAV가 남아 있습니다.',
+  'target-missing': '이동할 위치에서 WAV를 찾을 수 없습니다.',
+  'unexpected-wwu-diff': 'Work Unit에 계획하지 않은 변경이 포함되어 있습니다.',
+  'work-unit-invalid': 'Work Unit XML을 읽을 수 없습니다.',
+  'old-source-present': 'Work Unit에 이동 전 source 경로가 남아 있습니다.',
+  'new-source-mismatch': 'Work Unit의 새 source 경로가 정확히 하나가 아닙니다.',
+  'p4-opened-failed': 'Perforce opened 상태를 읽지 못했습니다.',
+  'p4-move-missing': 'Perforce에 WAV move/add와 move/delete가 모두 보이지 않습니다.',
+  'p4-edit-missing': 'Perforce에 Work Unit edit가 보이지 않습니다.',
+  'p4-diff-failed': 'Perforce Work Unit diff를 읽지 못했습니다.',
+  'unsafe-p4-diff': 'Work Unit diff가 source 경로 변경만으로 제한되지 않았습니다.',
+  'wwise-response-invalid': 'Wwise가 올바른 응답을 반환하지 않았습니다.',
+  'wwise-object-missing': 'Wwise에서 적용 대상 객체 하나를 찾지 못했습니다.',
+  'wwise-object-invalid': 'Wwise가 올바르지 않은 객체 정보를 반환했습니다.',
+  'wwise-guid-changed': 'Wwise 객체 GUID가 적용 manifest와 다릅니다.',
+  'wwise-path-changed': 'Wwise 객체 경로가 적용 manifest와 다릅니다.',
+  'wwise-source-mismatch': 'Wwise가 이동된 source 경로를 아직 불러오지 않았습니다.',
+  'wwise-source-missing': 'Wwise가 가리키는 원본 WAV 파일을 찾을 수 없습니다.',
 };
 
 const element = (id) => document.getElementById(id);
@@ -282,21 +300,57 @@ function renderApplySelection() {
 function renderActiveOperation(operation) {
   state.activeOperation = operation || null;
   const active = Boolean(operation);
+  element('apply-validation-result').hidden = true;
   element('active-operation').hidden = !active;
   element('apply-controls').hidden = true;
   element('apply-empty').hidden = active;
-  element('apply-state').textContent = active ? 'Rollback 대기' : '계획 필요';
-  element('apply-state').className = `panel-state ${active ? 'warning' : 'neutral'}`;
+  const validated = operation?.validated === true;
+  element('apply-state').textContent = active
+    ? (operation.status === 'failed'
+      ? 'Rollback 필요'
+      : (validated ? '검증 완료' : '반영 확인 필요'))
+    : '계획 필요';
+  element('apply-state').className = `panel-state ${active ? (validated ? 'ready' : 'warning') : 'neutral'}`;
   if (active) {
     element('active-file').textContent = operation.sourceFileName;
     element('active-move').textContent = `${operation.from} → ${operation.to}`;
     element('apply-report').textContent = `Rollback manifest: ${operation.manifest}`;
     element('apply-report').hidden = false;
+    element('run-validate-apply').hidden = operation.status !== 'applied';
     setStep('apply', 'active');
   } else {
     element('apply-report').hidden = true;
+    element('apply-validation-result').hidden = true;
   }
   updateOfflineModePresentation();
+}
+
+function renderApplyValidation(result) {
+  const validation = result.validation || {valid: false, issues: []};
+  const panel = element('apply-validation-result');
+  const issues = validation.issues || [];
+  const valid = validation.valid === true;
+  panel.className = `apply-validation-result ${valid ? 'valid' : 'invalid'}`;
+  element('apply-validation-title').textContent = valid
+    ? 'Wwise 반영 확인 완료'
+    : '확인이 필요한 항목';
+  element('apply-validation-summary').textContent = valid
+    ? '로컬 파일, Perforce opened/diff, Wwise 객체와 source 경로가 모두 일치합니다.'
+    : '아래 항목을 해결하거나 Rollback한 뒤 다시 계획해 주세요.';
+  const list = element('apply-validation-list');
+  list.replaceChildren();
+  for (const issue of issues) {
+    const item = document.createElement('li');
+    const localized = validationMessages[issue.code] || issue.message;
+    item.textContent = issue.objectPath ? `${localized} (${issue.objectPath})` : localized;
+    list.append(item);
+  }
+  list.hidden = valid;
+  panel.hidden = false;
+  if (result.reports?.validation) {
+    element('apply-report').textContent = `적용 검증 보고서: ${result.reports.validation}`;
+    element('apply-report').hidden = false;
+  }
 }
 
 function renderValidationIssues(issues) {
@@ -360,6 +414,7 @@ function updateApplyButtons() {
   const offline = element('offline-test-mode')?.checked === true;
   const applyButton = element('run-apply');
   const rollbackButton = element('run-rollback');
+  const validateButton = element('run-validate-apply');
   if (applyButton) {
     applyButton.disabled = state.busy
       || !state.bridgeReady
@@ -372,6 +427,13 @@ function updateApplyButtons() {
       || !state.bridgeReady
       || offline
       || !state.activeOperation;
+  }
+  if (validateButton) {
+    validateButton.disabled = state.busy
+      || !state.bridgeReady
+      || offline
+      || !state.activeOperation
+      || state.activeOperation.status !== 'applied';
   }
 }
 
@@ -538,6 +600,24 @@ async function runRollback() {
   }
 }
 
+async function runValidateApply() {
+  const operation = state.activeOperation;
+  if (!operation || operation.status !== 'applied') return;
+  clearError();
+  setBusy(true, `${operation.sourceFileName}의 Wwise 반영 상태를 확인하고 있습니다…`);
+  try {
+    const result = await invoke('run_validate_apply', settingsFromForm());
+    renderActiveOperation(result.activeOperation || operation);
+    renderApplyValidation(result);
+    setBusy(false, result.valid
+      ? 'Wwise와 Perforce 적용 상태를 확인했습니다'
+      : '적용 결과에 확인할 항목이 있습니다');
+  } catch (error) {
+    setBusy(false);
+    showError(error.message);
+  }
+}
+
 function changeOfflineMode() {
   resetResults();
   updateOfflineModePresentation();
@@ -559,6 +639,7 @@ function resetResults() {
   element('plan-table-body').replaceChildren();
   element('plan-table-wrap').hidden = true;
   element('validation-issues').hidden = true;
+  element('apply-validation-result').hidden = true;
   element('plan-report').hidden = true;
   element('offline-result-note').hidden = true;
   state.plan = null;
@@ -615,6 +696,21 @@ function loadPreview() {
     ],
     reports: {planMarkdown: 'data/reports/plan.md'},
   });
+  renderActiveOperation({
+    sourceFileName: 'CH04_S102_WT_001.wav',
+    from: 'Originals/Voices/English(US)/Scenario/CH04/CH04_S102_WT_001.wav',
+    to: 'Originals/Voices/English(US)/Script/CH04/CH04_S102_WT_001.wav',
+    objectPath: '\\Containers\\Default Work Unit\\VO\\Script\\CH04\\CH04_S102_WT_001',
+    changelist: '123456',
+    status: 'applied',
+    validated: true,
+    manifest: 'data/reports/apply/rollback-manifest.json',
+  });
+  renderApplyValidation({
+    valid: true,
+    validation: {valid: true, issues: []},
+    reports: {validation: 'data/reports/validate-apply/apply-validation.md'},
+  });
   setBusy(false, '브라우저 미리보기');
 }
 
@@ -623,6 +719,7 @@ element('choose-p4').addEventListener('click', chooseP4);
 element('run-doctor').addEventListener('click', runDoctor);
 element('run-plan').addEventListener('click', runPlan);
 element('run-apply').addEventListener('click', runApply);
+element('run-validate-apply').addEventListener('click', runValidateApply);
 element('run-rollback').addEventListener('click', runRollback);
 element('project-root').addEventListener('input', updateProjectState);
 element('offline-test-mode').addEventListener('change', changeOfflineMode);

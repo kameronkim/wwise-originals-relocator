@@ -101,6 +101,15 @@ class GuiApi:
             confirmation,
         )
 
+    def run_validate_apply(
+        self,
+        values: Mapping[str, object],
+    ) -> dict[str, object]:
+        return self._invoke_exclusive(
+            self.service.run_validate_apply,
+            values,
+        )
+
     def _invoke_exclusive(self, function: Any, *args: object) -> dict[str, object]:
         if not self._operation_lock.acquire(blocking=False):
             LOGGER.warning("Rejected concurrent GUI operation: %s", function.__name__)

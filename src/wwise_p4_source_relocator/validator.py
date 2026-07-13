@@ -5,10 +5,12 @@ import os
 from pathlib import Path
 import subprocess
 from typing import Protocol
+from urllib.parse import urlparse
 
 from .models import RollbackManifest, ValidationIssue, ValidationResult
 from .p4_client import P4Client
 from .project_paths import UnsafeProjectPath, resolve_project_path
+from .waapi_transport import HttpWaapiConnection, WaapiCallError
 from .wwise_xml import WwuParseError, source_path_count_for_guid
 
 
@@ -245,6 +247,20 @@ def validate_live_wwise_manifest(
 def validate_live_wwise_manifest_at_url(
     manifest: RollbackManifest, *, url: str | None = None
 ) -> ValidationResult:
+    scheme = urlparse(url).scheme if url is not None else None
+    if url is not None and scheme not in {"ws", "wss", "http", "https"}:
+        raise RuntimeError(
+            "Live Wwise validation requires a ws://, wss://, http://, or https:// URL"
+        )
+    if scheme in {"http", "https"}:
+        try:
+            return validate_live_wwise_manifest(
+                manifest,
+                connection=HttpWaapiConnection(url, timeout=20.0),
+            )
+        except (WaapiCallError, OSError, ValueError) as exc:
+            raise RuntimeError(f"Live Wwise validation failed: {exc}") from exc
+
     try:
         from waapi import WaapiClient
     except ImportError as exc:

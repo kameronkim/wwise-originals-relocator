@@ -43,8 +43,10 @@ uses the existing Wwise Authoring and Perforce CLI setup, runs readiness checks,
 builds a relocation plan, and stores reports beside the application. After a
 valid plan, the GUI can apply exactly one selected WAV through the same guarded
 manifest-first contract as the CLI and can roll back only that manifest. It
-never submits a changelist or installs production prerequisites. See the
-[portable GUI guide](docs/portable-gui.md) and its
+can also revalidate the applied file against the local filesystem, Perforce
+opened/diff state, and the live Wwise object after the operator reloads External
+Project Changes. It never submits a changelist or installs production
+prerequisites. See the [portable GUI guide](docs/portable-gui.md) and its
 [offline HTML edition](docs/usage-guide.html).
 
 When Perforce is not available, the GUI's explicit local test mode can still
@@ -195,7 +197,8 @@ WAV and edited Work Unit recorded in that manifest.
 
 Wwise must reload the externally changed Work Unit before live validation. In
 Wwise, accept the External Project Changes prompt and reload the affected Work
-Unit, then run:
+Unit. In the GUI, select **Wwise 반영 확인**. The same check is available to CLI
+operators with:
 
 ```bash
 wwise-p4-source-relocator validate-apply \

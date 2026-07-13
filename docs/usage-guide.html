@@ -208,7 +208,8 @@
             <li><strong>이동 가능 항목 하나 선택</strong><span>계획 전체의 사전 검증이 통과해야 선택할 수 있습니다.</span></li>
             <li><strong>선택한 파일 적용</strong><span>확인창의 파일명과 경로를 검토하면 <code>p4 edit</code>, <code>p4 move</code>, Work Unit source 경로 교체가 실행됩니다.</span></li>
             <li><strong>Wwise 다시 불러오기</strong><span>External Project Changes 안내에서 affected Work Unit을 다시 불러옵니다.</span></li>
-            <li><strong>P4V 검토</strong><span>WAV move와 Work Unit diff가 의도한 한 줄 경로 변경뿐인지 확인합니다.</span></li>
+            <li><strong>Wwise 반영 확인</strong><span>버튼을 누르면 WAV 위치, Work Unit 변경 범위, Perforce opened/diff, Wwise GUID·객체 경로·source와 실제 WAV 존재를 한 번에 검사합니다.</span></li>
+            <li><strong>P4V 검토</strong><span>자동 검증이 통과한 뒤에도 팀 절차에 따라 WAV move와 Work Unit diff를 최종 검토합니다.</span></li>
             <li><strong>테스트 후 Rollback</strong><span>이 파일 Rollback을 누르면 manifest에 기록된 WAV와 Work Unit만 원래 상태로 복구합니다.</span></li>
           </ol>
           <div class="note warning"><strong>프로그램은 submit하지 않습니다</strong><span>최종 제출은 팀의 기존 P4V 검토와 승인 절차를 사용하세요. 적용된 manifest가 남아 있는 동안에는 다른 파일을 추가 적용할 수 없습니다.</span></div>
@@ -242,7 +243,7 @@
           <h3>이동 계획 만들기가 오래 걸림</h3>
           <p>현재 버전은 WAAPI 연결과 source 조회에 제한 시간을 적용하며, 응답하지 않으면 오류 메시지로 돌아옵니다. 이전 버전에서 계속 대기 중이라면 프로그램을 닫고 최신 버전으로 다시 실행한 뒤 환경 확인부터 진행하세요.</p>
           <h3>적용 후 Wwise에 이전 경로가 보임</h3>
-          <p>Wwise의 External Project Changes 안내에서 affected Work Unit을 다시 불러오세요. Wwise가 외부 변경을 다시 읽기 전에는 화면에 이전 source 경로가 남아 있을 수 있습니다.</p>
+          <p>Wwise의 External Project Changes 안내에서 affected Work Unit을 다시 불러온 뒤 GUI의 <strong>Wwise 반영 확인</strong>을 다시 누르세요. Wwise가 외부 변경을 다시 읽기 전에는 화면에 이전 source 경로가 남아 있을 수 있습니다. 검증 실패 항목과 보고서가 계속 남으면 Rollback 후 환경 확인부터 다시 진행합니다.</p>
           <h3>지원 요청에 필요한 정보</h3>
           <ul>
             <li>화면에 표시된 실패 항목과 메시지</li>
@@ -257,6 +258,7 @@
           <ul>
             <li>사전 검증을 통과한 WAV 하나만 <code>p4 move</code>합니다.</li>
             <li>선택한 Wwise 객체 GUID의 source 경로 한 곳만 수정합니다.</li>
+            <li>적용 후 로컬 파일, Perforce 상태와 live Wwise 객체를 manifest 기준으로 다시 검증합니다.</li>
             <li>첫 변경 전에 rollback manifest를 저장합니다.</li>
             <li>Rollback은 manifest에 기록된 WAV와 Work Unit만 복구합니다.</li>
             <li><code>p4 submit</code>은 실행하지 않습니다.</li>

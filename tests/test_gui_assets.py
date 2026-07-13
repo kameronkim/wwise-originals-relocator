@@ -16,7 +16,7 @@ class GuiAssetTests(unittest.TestCase):
         index = (ASSET_ROOT / "index.html").read_text(encoding="utf-8")
 
         self.assertIn('href="styles.css?v=6"', index)
-        self.assertIn('src="app.js?v=5"', index)
+        self.assertIn('src="app.js?v=6"', index)
         self.assertTrue((ASSET_ROOT / "styles.css").is_file())
         self.assertTrue((ASSET_ROOT / "app.js").is_file())
 
@@ -27,8 +27,10 @@ class GuiAssetTests(unittest.TestCase):
 
         self.assertIn('id="run-apply"', index)
         self.assertIn('id="run-rollback"', index)
+        self.assertIn('id="run-validate-apply"', index)
         self.assertIn("'run_apply'", script)
         self.assertIn("'run_rollback'", script)
+        self.assertIn("'run_validate_apply'", script)
         self.assertIn("한 번에 한 파일", index)
         self.assertIn("이 프로그램은 submit을 실행하지 않습니다", index)
         self.assertIn("확인 내용", index)
