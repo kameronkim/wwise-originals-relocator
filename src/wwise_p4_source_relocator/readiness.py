@@ -1,0 +1,270 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import importlib.util
+from pathlib import Path
+import shutil
+import subprocess
+from typing import Literal
+
+from .waapi_transport import (
+    WaapiDetection,
+    WaapiEndpoint,
+    detect_waapi_endpoint,
+    waapi_websocket_is_reachable,
+)
+from .wwise_xml import WwuParseError, parse_source_references
+
+
+CheckStatus = Literal["pass", "fail"]
+
+
+@dataclass(frozen=True, slots=True)
+class ReadinessCheck:
+    name: str
+    status: CheckStatus
+    message: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"name": self.name, "status": self.status, "message": self.message}
+
+
+@dataclass(frozen=True, slots=True)
+class PilotReadiness:
+    project_root: Path
+    checks: tuple[ReadinessCheck, ...]
+    waapi_url: str | None = None
+    waapi_transport: str | None = None
+    waapi_issue: str | None = None
+
+    @property
+    def ready(self) -> bool:
+        return all(check.status == "pass" for check in self.checks)
+
+    def to_dict(self) -> dict[str, object]:
+        connection = (
+            {"url": self.waapi_url, "transport": self.waapi_transport}
+            if self.waapi_url and self.waapi_transport
+            else None
+        )
+        return {
+            "projectRoot": self.project_root.as_posix(),
+            "ready": self.ready,
+            "checks": [check.to_dict() for check in self.checks],
+            "waapiConnection": connection,
+            "waapiIssue": self.waapi_issue,
+        }
+
+
+def inspect_pilot_readiness(
+    project_root: str | Path,
+    *,
+    p4_executable: str = "p4",
+    p4_available: bool | None = None,
+    p4_workspace: bool | None = None,
+    waapi_client_available: bool | None = None,
+    waapi_reachable: bool | None = None,
+    waapi_host: str = "127.0.0.1",
+    waapi_port: int = 8080,
+    waapi_path: str = "/waapi",
+    waapi_secure: bool = False,
+    waapi_url: str | None = None,
+) -> PilotReadiness:
+    root = Path(project_root).resolve()
+    checks: list[ReadinessCheck] = []
+
+    root_exists = root.is_dir()
+    checks.append(
+        _check(
+            "project-root",
+            root_exists,
+            f"Project root exists: {root}" if root_exists else f"Project root is missing: {root}",
+        )
+    )
+    project_files = sorted(root.glob("*.wproj")) if root_exists else []
+    checks.append(
+        _check(
+            "wwise-project",
+            len(project_files) == 1,
+            f"Found Wwise project: {project_files[0].name}"
+            if len(project_files) == 1
+            else f"Expected one .wproj file, found {len(project_files)}",
+        )
+    )
+
+    originals = root / "Originals"
+    wav_files = list(originals.rglob("*.wav")) if originals.is_dir() else []
+    checks.append(
+        _check(
+            "originals-wav",
+            bool(wav_files),
+            f"Found {len(wav_files)} WAV source(s) under Originals"
+            if wav_files
+            else "No WAV sources were found under Originals",
+        )
+    )
+
+    work_units = sorted(root.rglob("*.wwu")) if root_exists else []
+    source_count = 0
+    parse_errors = 0
+    for work_unit in work_units:
+        try:
+            source_count += len(
+                parse_source_references(work_unit, project_root=root)
+            )
+        except WwuParseError:
+            parse_errors += 1
+    checks.append(
+        _check(
+            "wwu-sources",
+            source_count > 0 and parse_errors == 0,
+            f"Found {source_count} WWU source reference(s)"
+            if source_count > 0 and parse_errors == 0
+            else (
+                f"Found {source_count} source reference(s) with {parse_errors} parse error(s)"
+            ),
+        )
+    )
+
+    detected_p4 = (
+        _executable_is_available(p4_executable)
+        if p4_available is None
+        else p4_available
+    )
+    checks.append(
+        _check(
+            "p4-cli",
+            detected_p4,
+            "p4 CLI is available" if detected_p4 else "p4 CLI is not available",
+        )
+    )
+    if p4_workspace is None:
+        in_workspace = (
+            _p4_contains_project(root, executable=p4_executable)
+            if detected_p4 and root_exists
+            else False
+        )
+    else:
+        in_workspace = p4_workspace
+    checks.append(
+        _check(
+            "p4-workspace",
+            in_workspace,
+            "Project root is mapped in the current Perforce workspace"
+            if in_workspace
+            else "Project root is not mapped in the current Perforce workspace",
+        )
+    )
+
+    configured_url = waapi_url or _build_waapi_url(
+        host=waapi_host,
+        port=waapi_port,
+        path=waapi_path,
+        secure=waapi_secure,
+    )
+    detection = (
+        detect_waapi_endpoint(configured_url, project_root=root)
+        if waapi_reachable is None
+        else WaapiDetection(
+            WaapiEndpoint("wamp", configured_url) if waapi_reachable else None,
+            (
+                f"WAAPI is reachable at {configured_url}"
+                if waapi_reachable
+                else f"WAAPI is not reachable at {configured_url}"
+            ),
+            None if waapi_reachable else "unreachable",
+        )
+    )
+    client_available = (
+        detection.endpoint is not None and detection.endpoint.transport == "http"
+        or (
+            importlib.util.find_spec("waapi") is not None
+            if waapi_client_available is None
+            else waapi_client_available
+        )
+    )
+    checks.append(
+        _check(
+            "waapi-client",
+            client_available,
+            (
+                "HTTP WAAPI transport is available"
+                if detection.endpoint is not None
+                and detection.endpoint.transport == "http"
+                else "waapi-client is installed"
+            )
+            if client_available
+            else "waapi-client is not installed",
+        )
+    )
+    checks.append(
+        _check(
+            "waapi-server",
+            detection.endpoint is not None,
+            detection.message,
+        )
+    )
+    endpoint = detection.endpoint
+    return PilotReadiness(
+        root,
+        tuple(checks),
+        waapi_url=endpoint.url if endpoint else None,
+        waapi_transport=endpoint.transport if endpoint else None,
+        waapi_issue=detection.issue,
+    )
+
+
+def render_readiness_markdown(readiness: PilotReadiness) -> str:
+    lines = [
+        "# Pilot Readiness",
+        "",
+        f"- Ready: {'yes' if readiness.ready else 'no'}",
+        f"- Project root: `{readiness.project_root}`",
+        "",
+        "## Checks",
+        "",
+        "| Check | Status | Details |",
+        "|---|---|---|",
+    ]
+    lines.extend(
+        f"| {check.name} | {check.status} | {_escape(check.message)} |"
+        for check in readiness.checks
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _check(name: str, passed: bool, message: str) -> ReadinessCheck:
+    return ReadinessCheck(name, "pass" if passed else "fail", message)
+
+
+def _p4_contains_project(project_root: Path, *, executable: str = "p4") -> bool:
+    project_file = next(project_root.glob("*.wproj"), project_root)
+    try:
+        result = subprocess.run(
+            (executable, "where", str(project_file)),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0 and "not in client view" not in result.stdout
+
+
+def _executable_is_available(executable: str) -> bool:
+    candidate = Path(executable).expanduser()
+    if candidate.parent != Path("."):
+        return candidate.is_file()
+    return shutil.which(executable) is not None
+
+
+def _build_waapi_url(
+    *, host: str, port: int, path: str, secure: bool
+) -> str:
+    scheme = "wss" if secure else "ws"
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    return f"{scheme}://{host}:{port}{normalized_path}"
+
+
+def _escape(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", " ")

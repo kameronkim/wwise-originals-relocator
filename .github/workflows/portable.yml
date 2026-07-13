@@ -1,0 +1,75 @@
+name: Build portable GUI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "feature/**"
+      - develop
+      - main
+    tags:
+      - "v*"
+    paths:
+      - "src/**"
+      - "packaging/**"
+      - "scripts/**"
+      - "docs/portable-gui.md"
+      - "docs/usage-guide.html"
+      - "docs/cli-operations-guide.html"
+      - "docs/development-spec.md"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "RELEASING.md"
+      - "LICENSE"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/portable.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-portable:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Run tests
+        shell: pwsh
+        run: |
+          python -m pip install ".[dev]"
+          python -m pytest
+      - name: Build portable ZIP
+        shell: pwsh
+        run: ./scripts/build-portable.ps1
+      - name: Smoke test portable executable
+        shell: pwsh
+        run: |
+          $env:WWISE_RELOCATOR_SMOKE_TEST = "1"
+          $env:WWISE_RELOCATOR_SMOKE_REPORT = Join-Path $env:RUNNER_TEMP "portable-smoke.txt"
+          $SmokeProcess = Start-Process `
+            -FilePath "./dist/WwiseOriginalsRelocator/WwiseOriginalsRelocator.exe" `
+            -Wait `
+            -PassThru
+          $SmokeExitCode = $SmokeProcess.ExitCode
+          if (Test-Path $env:WWISE_RELOCATOR_SMOKE_REPORT) {
+            Get-Content $env:WWISE_RELOCATOR_SMOKE_REPORT
+          }
+          if ($SmokeExitCode -ne 0) {
+            throw "Portable executable smoke test failed."
+          }
+      - name: Upload portable app
+        uses: actions/upload-artifact@v7
+        with:
+          name: WwiseOriginalsRelocator-windows-x64
+          path: dist/WwiseOriginalsRelocator/
+          if-no-files-found: error
+          retention-days: 14

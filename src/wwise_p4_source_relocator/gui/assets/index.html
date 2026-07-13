@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Wwise Originals Relocator portable desktop interface">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css?v=9">
+  <title>Wwise Originals Relocator</title>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">작업 화면으로 바로가기</a>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <div>
+          <p class="brand-kicker">Wwise · Perforce</p>
+          <h1>Originals Relocator</h1>
+        </div>
+      </div>
+      <div class="header-status">
+        <span class="mode-badge">선택 파일 안전 적용</span>
+        <span id="bridge-status" class="connection-badge pending">앱 연결 확인 중</span>
+      </div>
+    </header>
+
+    <div class="app-body">
+      <aside class="sidebar" aria-label="진행 단계">
+        <p class="sidebar-label">작업 순서</p>
+        <ol class="steps">
+          <li class="active" data-step="project"><span>1</span><div><strong>프로젝트</strong><small>Wwise 폴더 선택</small></div></li>
+          <li data-step="doctor"><span>2</span><div><strong>환경 확인</strong><small id="doctor-step-detail">Wwise · P4 · WAAPI</small></div></li>
+          <li data-step="plan"><span>3</span><div><strong>이동 계획</strong><small>변경 전 검토</small></div></li>
+          <li data-step="apply"><span>4</span><div><strong>적용 · 복구</strong><small>선택한 파일 묶음</small></div></li>
+        </ol>
+
+      </aside>
+
+      <main id="workspace" class="workspace">
+        <section class="welcome-row" aria-labelledby="welcome-title">
+          <div>
+            <p class="section-kicker">안전한 첫 단계</p>
+            <h2 id="welcome-title">Wwise 프로젝트 상태를 먼저 확인하세요</h2>
+            <p>프로젝트를 선택하면 기존 Perforce 설정과 Wwise 연결을 자동으로 점검합니다.</p>
+          </div>
+          <div class="platform-chip"><span id="platform-value">—</span><small>실행 환경</small></div>
+        </section>
+
+        <div id="preview-banner" class="preview-banner" hidden>
+          브라우저 미리보기 모드입니다. 실제 점검 기능은 portable 앱에서 활성화됩니다.
+        </div>
+        <div id="error-banner" class="error-banner" role="alert" hidden></div>
+
+        <section class="panel project-panel" aria-labelledby="project-title">
+          <div class="panel-heading">
+            <div>
+              <span class="step-number">01</span>
+              <h2 id="project-title">프로젝트 선택</h2>
+            </div>
+            <span id="project-state" class="panel-state neutral">선택 필요</span>
+          </div>
+
+          <label class="field-label" for="project-root">Wwise 프로젝트 폴더</label>
+          <div class="path-field">
+            <input id="project-root" type="text" placeholder="Wwise .wproj가 있는 폴더를 선택하세요" autocomplete="off">
+            <button id="choose-project" class="secondary-button" type="button">폴더 선택</button>
+          </div>
+          <p class="field-help">환경 확인과 이동 계획까지는 프로젝트를 변경하지 않습니다.</p>
+
+          <label class="offline-mode-option" for="offline-test-mode">
+            <input id="offline-test-mode" type="checkbox">
+            <span class="offline-mode-control" aria-hidden="true"></span>
+            <span class="offline-mode-copy">
+              <strong>Perforce 없이 로컬 테스트</strong>
+              <small>Wwise와 로컬 파일만 읽어 환경 확인과 이동 계획 화면을 체험합니다.</small>
+            </span>
+            <span class="offline-mode-badge">변경 없음</span>
+          </label>
+
+          <details class="advanced-settings">
+            <summary>고급 연결 설정</summary>
+            <div class="advanced-grid">
+              <label>
+                <span>Wwise 객체 루트</span>
+                <input id="object-root" type="text" value="\Containers\Default Work Unit\VO">
+              </label>
+              <label>
+                <span>Chapter</span>
+                <input id="chapter" type="text" value="CH04">
+              </label>
+              <label class="wide-field">
+                <span>WAAPI 주소</span>
+                <input id="waapi-url" type="text" value="ws://127.0.0.1:8080/waapi">
+              </label>
+              <label class="wide-field">
+                <span>Perforce CLI</span>
+                <div class="path-field compact">
+                  <input id="p4-executable" type="text" placeholder="자동 감지">
+                  <button id="choose-p4" class="text-button" type="button">직접 선택</button>
+                </div>
+              </label>
+              <label>
+                <span>Perforce changelist 번호</span>
+                <input id="changelist" type="text" inputmode="numeric" placeholder="선택 사항">
+              </label>
+            </div>
+          </details>
+        </section>
+
+        <section class="system-grid" aria-label="자동 감지 상태">
+          <article class="system-card">
+            <div class="system-icon" aria-hidden="true">P4</div>
+            <div><small>Perforce CLI</small><strong id="p4-status">확인 전</strong><p id="p4-detail">기존 설치를 사용합니다</p></div>
+          </article>
+          <article class="system-card">
+            <div class="system-icon" aria-hidden="true">W</div>
+            <div><small>Wwise</small><strong id="wwise-status">확인 전</strong><p id="wwise-detail">설치 위치를 자동 탐색합니다</p></div>
+          </article>
+          <article class="system-card">
+            <div class="system-icon" aria-hidden="true">R</div>
+            <div><small>보고서</small><strong>Portable data</strong><p id="data-detail">현재 앱 폴더에 저장</p></div>
+          </article>
+        </section>
+
+        <section class="panel" aria-labelledby="doctor-title">
+          <div class="panel-heading">
+            <div>
+              <span class="step-number">02</span>
+              <h2 id="doctor-title">환경 확인</h2>
+            </div>
+            <button id="run-doctor" class="primary-button" type="button">환경 확인 시작</button>
+          </div>
+          <p id="doctor-description" class="panel-description">Wwise 프로젝트, Originals WAV, Work Unit, Perforce workspace와 WAAPI 연결을 확인합니다.</p>
+          <div id="readiness-empty" class="empty-state">
+            <span aria-hidden="true">✓</span>
+            <p>프로젝트를 선택하고 환경 확인을 시작하세요.</p>
+          </div>
+          <ul id="readiness-list" class="readiness-list" hidden></ul>
+          <div id="doctor-report" class="report-path" hidden></div>
+        </section>
+
+        <section class="panel" aria-labelledby="plan-title">
+          <div class="panel-heading">
+            <div>
+              <span class="step-number">03</span>
+              <h2 id="plan-title">이동 계획</h2>
+            </div>
+            <button id="run-plan" class="primary-button" type="button" disabled>이동 계획 만들기</button>
+          </div>
+          <p class="panel-description">Wwise에서 source를 읽고 제안 경로를 표시합니다. 검증을 통과한 이동 가능 항목은 여러 개 선택할 수 있습니다.</p>
+          <div id="offline-result-note" class="offline-result-note" hidden>
+            로컬 테스트 결과입니다. 파일 경로는 검증하지만 Perforce workspace와 opened 상태는 확인하지 않습니다.
+          </div>
+
+          <div id="plan-summary" class="summary-strip" hidden>
+            <div><strong id="move-count">0</strong><span>이동 가능</span></div>
+            <div><strong id="skip-count">0</strong><span>이미 정리됨</span></div>
+            <div><strong id="review-count">0</strong><span>담당자 확인</span></div>
+            <div><strong id="validation-state">—</strong><span>사전 검증</span></div>
+          </div>
+
+          <div id="plan-empty" class="empty-state compact-empty">
+            <span aria-hidden="true">↳</span>
+            <p>환경 확인을 통과하면 이동 계획을 만들 수 있습니다.</p>
+          </div>
+
+          <div id="plan-table-wrap" class="table-wrap" hidden>
+            <table>
+              <thead><tr><th>선택</th><th>파일</th><th>현재 위치</th><th>이동할 위치</th><th>상태</th><th>확인 내용</th></tr></thead>
+              <tbody id="plan-table-body"></tbody>
+            </table>
+          </div>
+          <div id="validation-issues" class="validation-issues" hidden>
+            <strong>계획을 사용하기 전에 확인하세요</strong>
+            <ul id="validation-issue-list"></ul>
+          </div>
+          <div id="plan-report" class="report-path" hidden></div>
+        </section>
+
+        <section class="panel" aria-labelledby="apply-title">
+          <div class="panel-heading">
+            <div>
+              <span class="step-number">04</span>
+              <h2 id="apply-title">선택한 파일 적용 및 복구</h2>
+            </div>
+            <span id="apply-state" class="panel-state neutral">계획 필요</span>
+          </div>
+          <p class="panel-description">선택한 WAV를 같은 changelist에서 <code>p4 move</code>하고 해당 Work Unit의 source 경로만 변경합니다. 하나라도 실패하면 이미 적용한 항목을 역순 복구하며, 이 프로그램은 submit을 실행하지 않습니다.</p>
+
+          <div id="apply-empty" class="empty-state compact-empty">
+            <span aria-hidden="true">✓</span>
+            <p>검증된 이동 계획에서 적용할 파일을 하나 이상 선택하세요.</p>
+          </div>
+
+          <div id="apply-controls" class="apply-controls" hidden>
+            <div class="selected-operation">
+              <small>적용할 파일</small>
+              <strong id="selected-file">—</strong>
+              <p id="selected-move">—</p>
+            </div>
+            <div class="safety-note">
+              <strong>적용 전 확인</strong>
+              <span>Wwise 저장을 마치고, P4V에서 올바른 workspace와 changelist를 사용 중인지 확인하세요.</span>
+            </div>
+            <button id="run-apply" class="primary-button danger-action" type="button" disabled>선택한 파일 모두 적용</button>
+          </div>
+
+          <div id="active-operation" class="active-operation" hidden>
+            <div>
+              <small>현재 적용된 파일 묶음</small>
+              <strong id="active-file">—</strong>
+              <p id="active-move">—</p>
+            </div>
+            <ol>
+              <li id="active-guide-1">Wwise의 External Project Changes 안내에서 affected Work Unit을 다시 불러옵니다.</li>
+              <li id="active-guide-2"><strong>Wwise 반영 확인</strong>으로 source와 Perforce 상태를 검증합니다.</li>
+              <li id="active-guide-3">테스트가 끝나면 Rollback으로 원래 상태를 복구합니다.</li>
+            </ol>
+            <div class="active-actions">
+              <button id="run-validate-apply" class="primary-button validate-apply-button" type="button">Wwise 반영 확인</button>
+              <button id="run-handoff-apply" class="primary-button handoff-button" type="button" hidden>P4V로 인계</button>
+              <button id="run-check-handoff" class="primary-button handoff-button" type="button" hidden>P4V 마감 상태 확인</button>
+              <button id="run-rollback" class="secondary-button rollback-button" type="button">이 작업 Rollback</button>
+            </div>
+          </div>
+          <div id="apply-validation-result" class="apply-validation-result" hidden>
+            <strong id="apply-validation-title">적용 결과 확인</strong>
+            <p id="apply-validation-summary"></p>
+            <ul id="apply-validation-list"></ul>
+          </div>
+          <div id="apply-report" class="report-path" hidden></div>
+        </section>
+
+        <section class="panel" aria-labelledby="history-title">
+          <div class="panel-heading">
+            <div>
+              <span class="step-number">기록</span>
+              <h2 id="history-title">최근 작업 기록</h2>
+            </div>
+            <button id="refresh-history" class="secondary-button history-refresh-button" type="button">새로고침</button>
+          </div>
+          <p class="panel-description">현재 프로젝트에서 실행한 최근 파일 작업과 검증 보고서를 읽기 전용으로 보여줍니다.</p>
+          <div id="history-empty" class="empty-state compact-empty">
+            <span aria-hidden="true">↺</span>
+            <p>프로젝트를 선택하면 이 앱에서 만든 작업 기록을 확인할 수 있습니다.</p>
+          </div>
+          <div id="history-list" class="history-list" hidden></div>
+          <p id="history-warning" class="history-warning" hidden></p>
+          <div id="history-root" class="report-path" hidden></div>
+        </section>
+      </main>
+    </div>
+
+    <footer class="status-bar">
+      <span id="activity-dot" class="activity-dot"></span>
+      <span id="activity-text">준비됨</span>
+      <span class="status-spacer"></span>
+      <span id="app-version">v—</span>
+    </footer>
+  </div>
+  <script src="app.js?v=9"></script>
+</body>
+</html>

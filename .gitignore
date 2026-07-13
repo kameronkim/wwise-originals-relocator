@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.pytest_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+.tools/
+.portable-data/
+portable-dist/
+
+# Generated operator output; keep the directory itself in Git.
+reports/*
+!reports/.gitkeep
