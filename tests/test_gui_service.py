@@ -104,6 +104,7 @@ class ReadOnlyGuiServiceTests(unittest.TestCase):
                 },
                 state["capabilities"],
             )
+            self.assertEqual("0.1.0", state["system"]["appVersion"])
 
     def test_doctor_writes_portable_reports(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

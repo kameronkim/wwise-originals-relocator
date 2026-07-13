@@ -29,6 +29,9 @@ class GuiAssetTests(unittest.TestCase):
         self.assertNotIn("invoke('apply'", script)
         self.assertNotIn("invoke('rollback'", script)
         self.assertIn("읽기 전용", index)
+        self.assertIn("확인 내용", index)
+        self.assertIn("validation-issues", index)
+        self.assertIn("app-version", index)
 
 
 if __name__ == "__main__":

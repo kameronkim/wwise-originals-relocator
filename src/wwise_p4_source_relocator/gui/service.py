@@ -9,6 +9,7 @@ import platform
 import shutil
 import sys
 
+from .. import __version__
 from ..models import RelocationPlan, ScanResult, ValidationResult
 from ..pilot_project import find_wwise_console
 from ..planner import build_relocation_plan
@@ -92,6 +93,7 @@ class ReadOnlyGuiService:
         return {
             "settings": settings,
             "system": {
+                "appVersion": __version__,
                 "platform": platform.system() or sys.platform,
                 "portable": bool(getattr(sys, "frozen", False)),
                 "dataRoot": self.store.data_root.as_posix(),

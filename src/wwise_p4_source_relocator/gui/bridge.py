@@ -9,6 +9,7 @@ from .service import GuiServiceError, ReadOnlyGuiService
 
 
 LOGGER = logging.getLogger(__name__)
+LOGGER.addHandler(logging.NullHandler())
 
 
 class GuiApi:
@@ -78,6 +79,7 @@ class GuiApi:
 
     def _invoke_exclusive(self, function: Any, *args: object) -> dict[str, object]:
         if not self._operation_lock.acquire(blocking=False):
+            LOGGER.warning("Rejected concurrent GUI operation: %s", function.__name__)
             return {
                 "ok": False,
                 "error": "다른 점검 작업이 실행 중입니다. 완료될 때까지 기다려 주세요.",
@@ -89,16 +91,21 @@ class GuiApi:
 
     @staticmethod
     def _invoke(function: Any, *args: object) -> dict[str, object]:
+        operation = getattr(function, "__name__", "unknown")
+        LOGGER.info("GUI operation started: %s", operation)
         try:
             result = function(*args)
         except GuiServiceError as exc:
+            LOGGER.warning("GUI operation rejected: %s: %s", operation, exc)
             return {"ok": False, "error": str(exc)}
         except Exception:
-            LOGGER.exception("GUI operation failed")
+            LOGGER.exception("GUI operation failed: %s", operation)
             return {
                 "ok": False,
                 "error": "작업을 완료하지 못했습니다. 지원 정보의 로그를 확인해 주세요.",
             }
         if isinstance(result, dict):
+            LOGGER.info("GUI operation completed: %s", operation)
             return {"ok": True, **result}
+        LOGGER.info("GUI operation completed: %s", operation)
         return {"ok": True, "value": result}

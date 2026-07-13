@@ -152,6 +152,10 @@ tbody tr:hover { background: rgba(102, 214, 186, 0.035); }
 .action-badge.move-and-patch { background: var(--green-soft); color: var(--green); }
 .action-badge.skip { background: #25332f; color: #a9bab5; }
 .action-badge.manual-review { background: var(--amber-soft); color: var(--amber); }
+.validation-issues { margin-top: 12px; padding: 13px 15px; border: 1px solid #745b2c; border-radius: 10px; background: var(--amber-soft); color: #f2cc89; }
+.validation-issues strong { font-size: 0.76rem; }
+.validation-issues ul { margin: 7px 0 0; padding-left: 1.1rem; color: #d8c39d; font-size: 0.7rem; }
+.validation-issues li + li { margin-top: 4px; }
 
 .status-bar { min-height: 32px; flex: 0 0 32px; display: flex; align-items: center; gap: 8px; padding: 0 18px; border-top: 1px solid var(--line-soft); background: #101816; color: #7e918b; font-size: 0.68rem; }
 .status-spacer { flex: 1; }

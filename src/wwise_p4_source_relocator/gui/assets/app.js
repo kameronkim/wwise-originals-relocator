@@ -15,6 +15,56 @@ const checkLabels = {
   'waapi-server': 'Wwise 연결',
 };
 
+const readinessMessages = {
+  'project-root': {
+    pass: '선택한 프로젝트 폴더를 확인했습니다.',
+    fail: '선택한 프로젝트 폴더를 찾을 수 없습니다.',
+  },
+  'wwise-project': {
+    pass: 'Wwise 프로젝트 파일을 확인했습니다.',
+    fail: '폴더에는 .wproj 파일이 정확히 하나 있어야 합니다.',
+  },
+  'originals-wav': {
+    pass: 'Originals 폴더의 WAV source를 확인했습니다.',
+    fail: 'Originals 폴더에서 WAV source를 찾지 못했습니다.',
+  },
+  'wwu-sources': {
+    pass: 'Work Unit의 source reference를 읽을 수 있습니다.',
+    fail: '읽을 수 있는 Work Unit source reference가 없습니다.',
+  },
+  'p4-cli': {
+    pass: '기존 Perforce CLI를 사용할 수 있습니다.',
+    fail: 'p4.exe를 찾지 못했습니다. 고급 설정에서 직접 선택하세요.',
+  },
+  'p4-workspace': {
+    pass: '프로젝트가 현재 Perforce workspace에 포함되어 있습니다.',
+    fail: '현재 Perforce workspace에 프로젝트가 매핑되어 있지 않습니다.',
+  },
+  'waapi-client': {
+    pass: 'Portable 앱의 Wwise 연결 모듈이 준비되었습니다.',
+    fail: 'Portable 앱에 Wwise 연결 모듈이 포함되어 있지 않습니다.',
+  },
+  'waapi-server': {
+    pass: '실행 중인 Wwise의 WAAPI에 연결할 수 있습니다.',
+    fail: 'Wwise에서 프로젝트를 열고 WAAPI 주소를 확인하세요.',
+  },
+};
+
+const validationMessages = {
+  'manual-review': '자동 판단할 수 없는 source가 있습니다.',
+  'p4-unavailable': 'Perforce CLI를 사용할 수 없습니다.',
+  'project-root-missing': '프로젝트 폴더를 찾을 수 없습니다.',
+  'originals-missing': '프로젝트에 Originals 폴더가 없습니다.',
+  'incomplete-move': '현재 위치 또는 이동할 위치 정보가 부족합니다.',
+  'outside-project': '프로젝트 폴더 밖의 경로가 포함되어 있습니다.',
+  'same-path': '현재 위치와 이동할 위치가 같습니다.',
+  'source-missing': '현재 WAV source 파일을 찾을 수 없습니다.',
+  'target-exists': '이동할 위치에 같은 파일이 이미 있습니다.',
+  'work-unit-missing': '관련 Work Unit 파일을 찾을 수 없습니다.',
+  'outside-workspace': 'Perforce workspace 밖의 경로가 있습니다.',
+  'already-opened': '다른 작업을 위해 이미 열린 파일이 있습니다.',
+};
+
 const element = (id) => document.getElementById(id);
 
 function settingsFromForm() {
@@ -44,6 +94,7 @@ function updateProjectState() {
 }
 
 function renderSystem(system) {
+  element('app-version').textContent = system.appVersion ? `v${system.appVersion}` : 'v—';
   element('platform-value').textContent = system.platform || '—';
   element('p4-status').textContent = system.p4Detected ? '감지됨' : '찾지 못함';
   element('p4-detail').textContent = system.p4Executable || '직접 선택할 수 있습니다';
@@ -65,7 +116,7 @@ function renderReadiness(result) {
     const title = document.createElement('strong');
     title.textContent = checkLabels[check.name] || check.name;
     const message = document.createElement('p');
-    message.textContent = check.message;
+    message.textContent = readinessMessages[check.name]?.[check.status] || check.message;
     copy.append(title, message);
     item.append(symbol, copy);
     list.append(item);
@@ -100,16 +151,31 @@ function renderPlan(result) {
       tableCell(item.from || '—', 'path-text'),
       tableCell(item.to || '—', 'path-text'),
       actionCell(item.action),
+      tableCell(item.reason || '—', 'reason-text'),
     );
     body.append(row);
   }
   element('plan-table-wrap').hidden = false;
+  renderValidationIssues(result.validation?.issues || []);
   setStep('plan', 'done');
   if (result.reports?.planMarkdown) {
     const report = element('plan-report');
     report.textContent = `계획 보고서: ${result.reports.planMarkdown}`;
     report.hidden = false;
   }
+}
+
+function renderValidationIssues(issues) {
+  const panel = element('validation-issues');
+  const list = element('validation-issue-list');
+  list.replaceChildren();
+  for (const issue of issues) {
+    const item = document.createElement('li');
+    const localized = validationMessages[issue.code] || issue.message;
+    item.textContent = issue.objectPath ? `${localized} (${issue.objectPath})` : localized;
+    list.append(item);
+  }
+  panel.hidden = issues.length === 0;
 }
 
 function tableCell(value, className) {
@@ -264,6 +330,7 @@ function loadPreview() {
   });
   renderSystem({
     platform: 'Windows',
+    appVersion: '0.1.0',
     p4Detected: true,
     p4Executable: 'C:\\Program Files\\Perforce\\p4.exe',
     wwiseDetected: true,
@@ -277,7 +344,10 @@ function loadPreview() {
   });
   renderPlan({
     counts: {'move-and-patch': 1, skip: 1, 'manual-review': 1},
-    validation: {valid: true},
+    validation: {
+      valid: false,
+      issues: [{code: 'manual-review', objectPath: '\\Containers\\VO\\Shared_Line'}],
+    },
     items: [
       {sourceFileName: 'CH04_S102_WT_001.wav', from: 'Scenario/CH04/CH04_S102_WT_001.wav', to: 'Script/CH04/CH04_S102_WT_001.wav', action: 'move-and-patch'},
       {sourceFileName: 'CH04_CUT_010.wav', from: 'Cutscene/CH04/CH04_CUT_010.wav', to: 'Cutscene/CH04/CH04_CUT_010.wav', action: 'skip'},

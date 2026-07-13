@@ -162,9 +162,13 @@
 
           <div id="plan-table-wrap" class="table-wrap" hidden>
             <table>
-              <thead><tr><th>파일</th><th>현재 위치</th><th>이동할 위치</th><th>상태</th></tr></thead>
+              <thead><tr><th>파일</th><th>현재 위치</th><th>이동할 위치</th><th>상태</th><th>확인 내용</th></tr></thead>
               <tbody id="plan-table-body"></tbody>
             </table>
+          </div>
+          <div id="validation-issues" class="validation-issues" hidden>
+            <strong>계획을 사용하기 전에 확인하세요</strong>
+            <ul id="validation-issue-list"></ul>
           </div>
           <div id="plan-report" class="report-path" hidden></div>
         </section>
@@ -175,6 +179,8 @@
       <span id="activity-dot" class="activity-dot"></span>
       <span id="activity-text">준비됨</span>
       <span class="status-spacer"></span>
+      <span id="app-version">v—</span>
+      <span aria-hidden="true">·</span>
       <span>Apply · Rollback 기능 없음</span>
     </footer>
   </div>
