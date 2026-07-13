@@ -1,4 +1,5 @@
 from dataclasses import replace
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -255,6 +256,9 @@ class ApplyRollbackTests(unittest.TestCase):
             {issue.code for issue in result.issues},
         )
 
+    @unittest.skipIf(
+        os.name == "nt", "Wine-mapped paths apply to non-Windows hosts"
+    )
     def test_live_validation_accepts_wine_mapped_original_path(self) -> None:
         p4 = FakeP4()
         manifest, _ = apply_single_file(

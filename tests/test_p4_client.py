@@ -26,8 +26,8 @@ class P4ClientTests(unittest.TestCase):
                 "move",
                 "-c",
                 "123456",
-                "Originals/Voices/English(US)/Scenario/My File.wav",
-                "Originals/Voices/English(US)/Script/My File.wav",
+                str(Path("Originals/Voices/English(US)/Scenario/My File.wav")),
+                str(Path("Originals/Voices/English(US)/Script/My File.wav")),
             ),
             command.argv,
         )

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import unittest
 
@@ -101,6 +102,9 @@ class WaapiReaderTests(unittest.TestCase):
 
         self.assertEqual(2, len(result.items[0].source_relative_paths))
 
+    @unittest.skipIf(
+        os.name == "nt", "Wine-mapped paths apply to non-Windows hosts"
+    )
     def test_accepts_real_parent_relation_and_wine_work_unit_path(self) -> None:
         guid = "{8886C06E-4664-4CEA-B3F1-8668CCDF3683}"
         sound = sound_record("CH04_S102_WT_001", guid)
