@@ -8,6 +8,7 @@ from typing import Sequence
 from .applier import ApplyError, apply_single_file
 from .p4_client import P4Client
 from .planner import build_noop_plan, build_relocation_plan
+from .pilot_project import PilotProjectError, create_pilot_project, find_wwise_console
 from .preflight import validate_relocation_plan
 from .readiness import inspect_pilot_readiness, render_readiness_markdown
 from .report import (
@@ -92,6 +93,20 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--markdown-out", type=Path)
     doctor.add_argument("--waapi-host", default="127.0.0.1")
     doctor.add_argument("--waapi-port", default=8080, type=int)
+
+    bootstrap = subparsers.add_parser(
+        "bootstrap-project", help="Create a disposable populated Wwise pilot project"
+    )
+    bootstrap.add_argument("--project-root", required=True, type=Path)
+    bootstrap.add_argument("--wwise-console", type=Path)
+    bootstrap.add_argument("--project-name", default="WwiseRelocatorPilot")
+    bootstrap.add_argument("--platform", default="Mac")
+    bootstrap.add_argument("--language", default="English(US)")
+    bootstrap.add_argument("--object-root", default=r"\Containers\Default Work Unit\VO")
+    bootstrap.add_argument("--category", default="Script")
+    bootstrap.add_argument("--chapter", default="CH04")
+    bootstrap.add_argument("--source-category", default="Scenario")
+    bootstrap.add_argument("--sound-name", default="CH04_S102_WT_001")
     return parser
 
 
@@ -198,4 +213,35 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.markdown_out.write_text(markdown, encoding="utf-8")
         print(markdown, end="")
         return 0 if readiness.ready else 1
+    if args.command == "bootstrap-project":
+        console = args.wwise_console or find_wwise_console()
+        if console is None:
+            print(
+                "WwiseConsole was not found; pass its path with --wwise-console",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            pilot = create_pilot_project(
+                args.project_root,
+                wwise_console=console,
+                project_name=args.project_name,
+                platform=args.platform,
+                language=args.language,
+                object_root=args.object_root,
+                category=args.category,
+                chapter=args.chapter,
+                source_category=args.source_category,
+                sound_name=args.sound_name,
+            )
+        except PilotProjectError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(
+            f"Created populated Wwise pilot project: {pilot.project_file}\n"
+            f"Object root: {pilot.object_root}\n"
+            f"Source: {pilot.source_relative_path}\n"
+            f"Expected target: {pilot.target_relative_path}"
+        )
+        return 0
     raise AssertionError(f"Unhandled command: {args.command}")

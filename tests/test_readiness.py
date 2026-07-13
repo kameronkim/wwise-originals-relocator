@@ -2,8 +2,10 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from wwise_p4_source_relocator.readiness import (
+    _p4_contains_project,
     inspect_pilot_readiness,
     render_readiness_markdown,
 )
@@ -13,6 +15,20 @@ FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "sample_project"
 
 
 class PilotReadinessTests(unittest.TestCase):
+    def test_workspace_probe_checks_the_project_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            project_file = project_root / "Pilot.wproj"
+            project_file.write_text("<WwiseDocument/>", encoding="utf-8")
+
+            with patch("wwise_p4_source_relocator.readiness.subprocess.run") as run:
+                run.return_value.returncode = 0
+                run.return_value.stdout = "mapped"
+
+                self.assertTrue(_p4_contains_project(project_root))
+
+            self.assertEqual(str(project_file), run.call_args.args[0][-1])
+
     def test_ready_project_passes_all_checks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project_root = Path(directory) / "WwiseProject"

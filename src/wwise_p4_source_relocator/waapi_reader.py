@@ -13,7 +13,11 @@ class WaapiError(RuntimeError):
 
 class WaapiConnection(Protocol):
     def call(
-        self, uri: str, args: dict[str, object], options: dict[str, object]
+        self,
+        uri: str,
+        args: dict[str, object],
+        *,
+        options: dict[str, object],
     ) -> dict[str, object]: ...
 
 
@@ -23,6 +27,7 @@ RETURN_FIELDS = [
     "type",
     "path",
     "owner",
+    "parent",
     "filePath",
     "originalRelativeFilePath",
     "audioSource:language",
@@ -42,8 +47,10 @@ def scan_with_connection(
             "from": {"path": [object_root]},
             "transform": [{"select": ["descendants"]}],
         },
-        {"return": RETURN_FIELDS},
+        options={"return": RETURN_FIELDS},
     )
+    if not isinstance(response, dict):
+        raise WaapiError("WAAPI object.get did not return a response object")
     records = response.get("return")
     if not isinstance(records, list):
         raise WaapiError("WAAPI object.get response did not contain a return list")
@@ -102,7 +109,7 @@ def build_scan_result(
         if record_type == "Sound":
             sounds.append(raw)
         elif record_type == "AudioFileSource":
-            owner = raw.get("owner")
+            owner = raw.get("parent") or raw.get("owner")
             if isinstance(owner, dict) and isinstance(owner.get("id"), str):
                 sources_by_owner[owner["id"]].append(raw)
 
@@ -200,7 +207,12 @@ def _source_language(source: dict[str, object]) -> str | None:
 
 
 def _relative_file_path(file_path: str, project_root: Path) -> str:
-    candidate = Path(file_path)
+    normalized = file_path.replace("\\", "/")
+    if normalized.casefold().startswith("z:/") and project_root.as_posix().startswith(
+        "/"
+    ):
+        normalized = normalized[2:]
+    candidate = Path(normalized)
     if candidate.is_absolute():
         try:
             return candidate.resolve().relative_to(project_root).as_posix()
@@ -208,7 +220,7 @@ def _relative_file_path(file_path: str, project_root: Path) -> str:
             raise WaapiError(
                 f"Work Unit {file_path} is outside project root {project_root}"
             ) from exc
-    return file_path.replace("\\", "/")
+    return normalized
 
 
 def _required_record_string(record: dict[str, object], key: str) -> str:

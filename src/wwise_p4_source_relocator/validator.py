@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 import subprocess
 from typing import Protocol
@@ -13,7 +14,11 @@ from .wwise_xml import WwuParseError, source_path_count_for_guid
 
 class WaapiConnection(Protocol):
     def call(
-        self, uri: str, args: dict[str, object], options: dict[str, object]
+        self,
+        uri: str,
+        args: dict[str, object],
+        *,
+        options: dict[str, object],
     ) -> dict[str, object]: ...
 
 
@@ -157,7 +162,7 @@ def validate_live_wwise_manifest(
         response = connection.call(
             "ak.wwise.core.object.get",
             {"from": {"path": [affected.object_path]}},
-            {
+            options={
                 "return": [
                     "id",
                     "path",
@@ -166,6 +171,15 @@ def validate_live_wwise_manifest(
                 ]
             },
         )
+        if not isinstance(response, dict):
+            issues.append(
+                ValidationIssue(
+                    "wwise-response-invalid",
+                    "WAAPI did not return a response object",
+                    affected.object_path,
+                )
+            )
+            continue
         records = response.get("return")
         if not isinstance(records, list) or len(records) != 1:
             issues.append(
@@ -215,7 +229,9 @@ def validate_live_wwise_manifest(
                 )
             )
         original_file = record.get("originalFilePath")
-        if not isinstance(original_file, str) or not Path(original_file).is_file():
+        if not isinstance(original_file, str) or not _waapi_file_exists(
+            original_file
+        ):
             issues.append(
                 ValidationIssue(
                     "wwise-source-missing",
@@ -264,3 +280,10 @@ def _canonical_source_path(value: str) -> str:
     if not normalized.casefold().startswith("originals/"):
         normalized = f"Originals/{normalized}"
     return normalized.casefold()
+
+
+def _waapi_file_exists(value: str) -> bool:
+    normalized = value.replace("\\", "/")
+    if normalized.casefold().startswith("z:/") and os.name != "nt":
+        normalized = normalized[2:]
+    return Path(normalized).is_file()

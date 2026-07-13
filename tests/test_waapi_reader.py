@@ -101,6 +101,29 @@ class WaapiReaderTests(unittest.TestCase):
 
         self.assertEqual(2, len(result.items[0].source_relative_paths))
 
+    def test_accepts_real_parent_relation_and_wine_work_unit_path(self) -> None:
+        guid = "{8886C06E-4664-4CEA-B3F1-8668CCDF3683}"
+        sound = sound_record("CH04_S102_WT_001", guid)
+        sound["filePath"] = (
+            "Z:" + str(FIXTURE_ROOT / "Actor-Mixer Hierarchy" / "Default Work Unit.wwu")
+        )
+        source = source_record(
+            guid, r"Voices\English(US)\Scenario\CH04\CH04_S102_WT_001.wav"
+        )
+        source["parent"] = source.pop("owner")
+
+        result = build_scan_result(
+            [sound, source],
+            project_root=FIXTURE_ROOT,
+            object_root=OBJECT_ROOT,
+            chapter="CH04",
+        )
+
+        self.assertEqual(
+            "Actor-Mixer Hierarchy/Default Work Unit.wwu",
+            result.items[0].work_unit_path,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

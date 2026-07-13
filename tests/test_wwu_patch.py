@@ -77,6 +77,26 @@ class WwuPatchTests(unittest.TestCase):
                 patch.new_xml_path,
             )
 
+    def test_matches_real_voice_path_relative_to_language_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "voice-relative.wwu"
+            path.write_bytes(
+                FIXTURE_WWU.read_bytes().replace(
+                    b"Originals\\Voices\\English(US)\\", b""
+                )
+            )
+
+            patch = prepare_source_path_patch(
+                path,
+                object_guid=GUID,
+                old_relative_path=OLD_PATH,
+                new_relative_path=NEW_PATH,
+            )
+
+            self.assertEqual(
+                r"Script\CH04\CH04_S102_WT_001.wav", patch.new_xml_path
+            )
+
     def test_rejects_same_path_appearing_elsewhere_in_work_unit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "duplicate.wwu"

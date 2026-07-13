@@ -31,7 +31,9 @@ execution:
 - roll back only the paths listed in the manifest;
 - exercise the behavior against a small fixture project.
 
-Batch apply, changelist submission, and Wwise import are not implemented.
+Batch apply, changelist submission, and Wwise import as a relocation mechanism
+are not implemented. The disposable-project bootstrap uses WwiseConsole import
+only to create its isolated test fixture.
 Planning commands remain read-only, and `apply` refuses to run unless `--only`
 selects exactly one safe move candidate.
 
@@ -49,6 +51,41 @@ Install the live-scanning extra with:
 ```bash
 python -m pip install -e ".[waapi]"
 ```
+
+## Create a disposable Wwise pilot project
+
+On a machine with Wwise Authoring installed, create a populated project without
+touching an existing `.wproj`:
+
+```bash
+PYTHONPATH=src python -m wwise_p4_source_relocator bootstrap-project \
+  --project-root /private/tmp/wwise-relocator-p4/workspace/WwiseRelocatorPilot
+```
+
+The command refuses to use a non-empty destination. It invokes WwiseConsole to
+create a new project and imports a generated PCM voice WAV into:
+
+```text
+Originals/Voices/English(US)/Scenario/CH04/CH04_S102_WT_001.wav
+```
+
+The Wwise object is created under
+`\Containers\Default Work Unit\VO\Script\CH04`, so the planner expects the WAV
+to move from `Scenario/CH04` to `Script/CH04`. The project root also receives
+`relocator-pilot.json` with the exact scan inputs and expected paths.
+
+Run Wwise headlessly for live scanning and validation:
+
+```bash
+"/path/to/WwiseConsole.sh" waapi-server \
+  /private/tmp/wwise-relocator-p4/workspace/WwiseRelocatorPilot/WwiseRelocatorPilot.wproj \
+  --wamp-port 18080 \
+  --http-port 18090 \
+  --allowed-origin localhost,127.0.0.1
+```
+
+See [the live Wwise pilot](docs/live-wwise-pilot.md) for the complete Perforce,
+WAAPI, apply, validation, and rollback sequence.
 
 ## Check pilot readiness
 

@@ -255,6 +255,33 @@ class ApplyRollbackTests(unittest.TestCase):
             {issue.code for issue in result.issues},
         )
 
+    def test_live_validation_accepts_wine_mapped_original_path(self) -> None:
+        p4 = FakeP4()
+        manifest, _ = apply_single_file(
+            build_plan(self.project_root),
+            only="CH04_S102_WT_001.wav",
+            changelist="123",
+            manifest_path=self.manifest_path,
+            p4=p4,
+            probe=CleanWorkspaceProbe(),
+        )
+        affected = manifest.affected_objects[0]
+        target = manifest.project_root / manifest.moves[0].to_relative_path
+
+        result = validate_live_wwise_manifest(
+            manifest,
+            connection=FakeWaapiConnection(
+                {
+                    "id": affected.guid,
+                    "path": affected.object_path,
+                    "originalRelativeFilePath": affected.after_source_relative_path,
+                    "originalFilePath": "Z:" + str(target),
+                }
+            ),
+        )
+
+        self.assertTrue(result.is_valid)
+
     def test_rollback_rejects_manifest_path_outside_project(self) -> None:
         p4 = FakeP4()
         manifest, _ = apply_single_file(

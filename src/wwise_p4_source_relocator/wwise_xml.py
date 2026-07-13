@@ -3,7 +3,7 @@ from __future__ import annotations
 import codecs
 from dataclasses import dataclass
 import hashlib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 from xml.sax.saxutils import escape
 from xml.etree import ElementTree
@@ -152,8 +152,7 @@ def prepare_source_path_patch(
         node
         for node in _children_named(sounds[0], "AudioFile")
         if node.text
-        and _canonical_source_path(node.text)
-        == _canonical_source_path(old_relative_path)
+        and _source_paths_equivalent(node.text, old_relative_path)
     ]
     if len(matches) != 1:
         raise WwuPatchError(
@@ -210,7 +209,7 @@ def source_path_count_for_guid(
         return 0
     expected = _canonical_source_path(relative_path)
     return sum(
-        node.text is not None and _canonical_source_path(node.text) == expected
+        node.text is not None and _source_paths_equivalent(node.text, expected)
         for node in _children_named(sounds[0], "AudioFile")
     )
 
@@ -222,11 +221,37 @@ def _canonical_source_path(value: str) -> str:
     return normalized.casefold()
 
 
+def _source_paths_equivalent(left: str, right: str) -> bool:
+    return not _source_path_forms(left).isdisjoint(_source_path_forms(right))
+
+
+def _source_path_forms(value: str) -> set[str]:
+    normalized = value.strip().replace("\\", "/").lstrip("/")
+    forms = {normalized.casefold()}
+    parts = PurePosixPath(normalized).parts
+    if parts and parts[0].casefold() == "originals":
+        parts = parts[1:]
+        forms.add(PurePosixPath(*parts).as_posix().casefold())
+    if parts and parts[0].casefold() == "sfx" and len(parts) > 1:
+        forms.add(PurePosixPath(*parts[1:]).as_posix().casefold())
+    if parts and parts[0].casefold() == "voices" and len(parts) > 2:
+        forms.add(PurePosixPath(*parts[2:]).as_posix().casefold())
+    return forms
+
+
 def _match_wwu_path_style(old_xml_path: str, new_relative_path: str) -> str:
     normalized = new_relative_path.replace("\\", "/").lstrip("/")
-    if not old_xml_path.replace("\\", "/").casefold().startswith("originals/"):
+    old_normalized = old_xml_path.replace("\\", "/").lstrip("/")
+    if not old_normalized.casefold().startswith("originals/"):
         if normalized.casefold().startswith("originals/"):
             normalized = normalized[len("Originals/") :]
+        old_root = old_normalized.split("/", 1)[0].casefold()
+        parts = PurePosixPath(normalized).parts
+        if old_root not in {"voices", "sfx"}:
+            if parts and parts[0].casefold() == "sfx":
+                normalized = PurePosixPath(*parts[1:]).as_posix()
+            elif len(parts) > 2 and parts[0].casefold() == "voices":
+                normalized = PurePosixPath(*parts[2:]).as_posix()
     separator = "\\" if "\\" in old_xml_path else "/"
     return normalized.replace("/", separator)
 

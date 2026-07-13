@@ -184,9 +184,10 @@ def _check(name: str, passed: bool, message: str) -> ReadinessCheck:
 
 
 def _p4_contains_project(project_root: Path) -> bool:
+    project_file = next(project_root.glob("*.wproj"), project_root)
     try:
         result = subprocess.run(
-            ("p4", "where", str(project_root)),
+            ("p4", "where", str(project_file)),
             capture_output=True,
             text=True,
             check=False,
