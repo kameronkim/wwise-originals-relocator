@@ -19,11 +19,13 @@ def main() -> int:
     try:
         import webview
     except ImportError:
-        print(
+        details = (
             "The portable GUI requires the gui optional dependency. "
-            "Install this development checkout with .[gui].",
-            file=sys.stderr,
+            "Install this development checkout with .[gui].\n"
+            + traceback.format_exc()
         )
+        _write_smoke_report(details)
+        print(details, file=sys.stderr)
         return 1
 
     index_path = Path(__file__).with_name("assets") / "index.html"
