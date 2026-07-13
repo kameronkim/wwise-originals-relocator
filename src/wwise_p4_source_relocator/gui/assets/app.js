@@ -47,7 +47,7 @@ const readinessMessages = {
   },
   'waapi-server': {
     pass: '실행 중인 Wwise의 WAAPI에 연결할 수 있습니다.',
-    fail: 'Wwise에서 프로젝트를 열고 WAAPI 주소를 확인하세요.',
+    fail: 'Wwise에서 WAAPI를 켜고 같은 포트를 사용하는 다른 프로그램이 없는지 확인하세요.',
   },
 };
 

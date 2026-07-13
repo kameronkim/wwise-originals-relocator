@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
+import hashlib
 import importlib.util
+import os
 from pathlib import Path
 import shutil
 import socket
+import ssl
 import subprocess
 from typing import Literal
 
@@ -51,6 +55,8 @@ def inspect_pilot_readiness(
     waapi_reachable: bool | None = None,
     waapi_host: str = "127.0.0.1",
     waapi_port: int = 8080,
+    waapi_path: str = "/waapi",
+    waapi_secure: bool = False,
 ) -> PilotReadiness:
     root = Path(project_root).resolve()
     checks: list[ReadinessCheck] = []
@@ -153,7 +159,12 @@ def inspect_pilot_readiness(
         )
     )
     reachable = (
-        _port_is_reachable(waapi_host, waapi_port)
+        waapi_websocket_is_reachable(
+            waapi_host,
+            waapi_port,
+            path=waapi_path,
+            secure=waapi_secure,
+        )
         if waapi_reachable is None
         else waapi_reachable
     )
@@ -161,9 +172,12 @@ def inspect_pilot_readiness(
         _check(
             "waapi-server",
             reachable,
-            f"WAAPI is reachable at {waapi_host}:{waapi_port}"
+            f"WAAPI WebSocket is reachable at {waapi_host}:{waapi_port}{waapi_path}"
             if reachable
-            else f"WAAPI is not reachable at {waapi_host}:{waapi_port}",
+            else (
+                "WAAPI did not accept a WAMP WebSocket connection at "
+                f"{waapi_host}:{waapi_port}{waapi_path}"
+            ),
         )
     )
     return PilotReadiness(root, tuple(checks))
@@ -213,12 +227,60 @@ def _executable_is_available(executable: str) -> bool:
     return shutil.which(executable) is not None
 
 
-def _port_is_reachable(host: str, port: int) -> bool:
+def waapi_websocket_is_reachable(
+    host: str,
+    port: int,
+    *,
+    path: str = "/waapi",
+    secure: bool = False,
+    timeout: float = 0.5,
+) -> bool:
+    """Verify that an endpoint accepts the WebSocket protocol used by WAAPI."""
+
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    nonce = base64.b64encode(os.urandom(16)).decode("ascii")
+    expected_accept = base64.b64encode(
+        hashlib.sha1(
+            (nonce + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")
+        ).digest()
+    ).decode("ascii")
+    request = (
+        f"GET {normalized_path} HTTP/1.1\r\n"
+        f"Host: {host}:{port}\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        f"Sec-WebSocket-Key: {nonce}\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "Sec-WebSocket-Protocol: wamp.2.json\r\n"
+        "\r\n"
+    ).encode("ascii")
+
     try:
-        with socket.create_connection((host, port), timeout=0.25):
-            return True
+        connection = socket.create_connection((host, port), timeout=timeout)
+        if secure:
+            context = ssl.create_default_context()
+            connection = context.wrap_socket(connection, server_hostname=host)
+        with connection:
+            connection.sendall(request)
+            response = connection.recv(8192).decode("latin-1")
     except OSError:
         return False
+
+    lines = response.split("\r\n")
+    if not lines or " 101 " not in f" {lines[0]} ":
+        return False
+    headers = {
+        name.strip().casefold(): value.strip()
+        for line in lines[1:]
+        if ":" in line
+        for name, value in (line.split(":", 1),)
+    }
+    return (
+        headers.get("upgrade", "").casefold() == "websocket"
+        and "upgrade" in headers.get("connection", "").casefold()
+        and headers.get("sec-websocket-accept") == expected_accept
+        and headers.get("sec-websocket-protocol", "").casefold() == "wamp.2.json"
+    )
 
 
 def _escape(value: str) -> str:

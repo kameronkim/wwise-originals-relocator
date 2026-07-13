@@ -16,6 +16,7 @@ from wwise_p4_source_relocator.models import (
     ValidationResult,
 )
 from wwise_p4_source_relocator.readiness import PilotReadiness, ReadinessCheck
+from wwise_p4_source_relocator.waapi_reader import WaapiError
 
 
 def ready(project_root: str | Path, **_: object) -> PilotReadiness:
@@ -55,6 +56,10 @@ def scan(**values: object) -> ScanResult:
 
 def validate(*_: object, **__: object) -> ValidationResult:
     return ValidationResult(())
+
+
+def failing_scan(**_: object) -> ScanResult:
+    raise WaapiError("scan timed out")
 
 
 class PortableSettingsStoreTests(unittest.TestCase):
@@ -153,6 +158,18 @@ class ReadOnlyGuiServiceTests(unittest.TestCase):
 
             with self.assertRaisesRegex(GuiServiceError, "Project is not mapped"):
                 service.run_plan(self.settings(root / "project"))
+
+    def test_plan_reports_an_actionable_waapi_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(root / "data", scanner=failing_scan)
+
+            with self.assertRaisesRegex(
+                GuiServiceError, "Wwise WAAPI에서 source를 읽지 못했습니다"
+            ):
+                service.run_plan(self.settings(project_root))
 
     def test_offline_mode_skips_only_perforce_readiness_checks(self) -> None:
         calls: list[dict[str, object]] = []

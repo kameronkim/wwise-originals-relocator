@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from multiprocessing import get_context
 from pathlib import Path, PurePosixPath
+from queue import Empty
 from typing import Protocol
+from urllib.parse import urlparse
 
 from .models import ScanResult, SourceItem
+from .readiness import waapi_websocket_is_reachable
 
 
 class WaapiError(RuntimeError):
@@ -32,6 +36,8 @@ RETURN_FIELDS = [
     "originalRelativeFilePath",
     "audioSource:language",
 ]
+
+WAAPI_SCAN_TIMEOUT_SECONDS = 20.0
 
 
 def scan_with_connection(
@@ -68,6 +74,45 @@ def scan_live(
     object_root: str,
     chapter: str,
     url: str | None = None,
+    timeout_seconds: float = WAAPI_SCAN_TIMEOUT_SECONDS,
+) -> ScanResult:
+    endpoint = url or "ws://127.0.0.1:8080/waapi"
+    parsed = urlparse(endpoint)
+    if parsed.scheme not in {"ws", "wss"} or not parsed.hostname:
+        raise WaapiError("WAAPI URL must use ws:// or wss://")
+    port = parsed.port or (443 if parsed.scheme == "wss" else 80)
+    path = parsed.path or "/waapi"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    if not waapi_websocket_is_reachable(
+        parsed.hostname,
+        port,
+        path=path,
+        secure=parsed.scheme == "wss",
+        timeout=min(timeout_seconds, 1.0),
+    ):
+        raise WaapiError(
+            "the configured address did not accept a WAAPI WebSocket connection; "
+            "another application may be using the port"
+        )
+
+    return _run_bounded_live_scan(
+        {
+            "project_root": str(project_root),
+            "object_root": object_root,
+            "chapter": chapter,
+            "url": endpoint,
+        },
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def _scan_live_unbounded(
+    *,
+    project_root: str | Path,
+    object_root: str,
+    chapter: str,
+    url: str,
 ) -> ScanResult:
     try:
         from waapi import WaapiClient
@@ -76,9 +121,8 @@ def scan_live(
             "Live scanning requires the optional waapi-client dependency"
         ) from exc
 
-    kwargs = {} if url is None else {"url": url}
     try:
-        with WaapiClient(**kwargs) as connection:
+        with WaapiClient(url=url) as connection:
             return scan_with_connection(
                 connection,
                 project_root=project_root,
@@ -89,6 +133,57 @@ def scan_live(
         if isinstance(exc, WaapiError):
             raise
         raise WaapiError(f"WAAPI scan failed: {exc}") from exc
+
+
+def _scan_live_worker(result_queue: object, values: dict[str, object]) -> None:
+    try:
+        result = _scan_live_unbounded(**values)
+    except Exception as exc:
+        result_queue.put(("error", str(exc)))
+    else:
+        result_queue.put(("ok", result.to_dict()))
+
+
+def _run_bounded_live_scan(
+    values: dict[str, object],
+    *,
+    timeout_seconds: float,
+    worker: object = _scan_live_worker,
+) -> ScanResult:
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    context = get_context("spawn")
+    result_queue = context.Queue(maxsize=1)
+    process = context.Process(
+        target=worker,
+        args=(result_queue, values),
+        name="wwise-waapi-scan",
+        daemon=True,
+    )
+    process.start()
+    try:
+        try:
+            status, payload = result_queue.get(timeout=timeout_seconds)
+        except Empty as exc:
+            raise WaapiError(
+                f"WAAPI scan timed out after {timeout_seconds:g} seconds"
+            ) from exc
+    finally:
+        process.join(timeout=0.5)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=1.0)
+        result_queue.close()
+        result_queue.join_thread()
+
+    if status == "error":
+        raise WaapiError(str(payload))
+    if status != "ok" or not isinstance(payload, dict):
+        raise WaapiError("WAAPI scan process returned an invalid response")
+    try:
+        return ScanResult.from_dict(payload)
+    except (TypeError, ValueError) as exc:
+        raise WaapiError(f"WAAPI scan returned invalid data: {exc}") from exc
 
 
 def build_scan_result(

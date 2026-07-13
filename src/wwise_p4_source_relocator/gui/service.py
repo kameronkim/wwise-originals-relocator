@@ -25,7 +25,7 @@ from ..report import (
     render_validation,
     write_json_document,
 )
-from ..waapi_reader import scan_live
+from ..waapi_reader import WaapiError, scan_live
 
 
 DEFAULT_SETTINGS: dict[str, object] = {
@@ -133,7 +133,7 @@ class ReadOnlyGuiService:
         settings = self.store.save(values)
         project_root = _project_root(settings)
         p4_executable = _p4_executable(settings)
-        waapi_host, waapi_port = _waapi_endpoint(settings)
+        waapi_host, waapi_port, waapi_path, waapi_secure = _waapi_endpoint(settings)
         offline_test_mode = _offline_test_mode(settings)
         readiness = self._readiness_inspector(
             project_root,
@@ -142,6 +142,8 @@ class ReadOnlyGuiService:
             p4_workspace=True if offline_test_mode else None,
             waapi_host=waapi_host,
             waapi_port=waapi_port,
+            waapi_path=waapi_path,
+            waapi_secure=waapi_secure,
         )
         if offline_test_mode:
             readiness = _mark_perforce_skipped(readiness)
@@ -165,7 +167,7 @@ class ReadOnlyGuiService:
         settings = self.store.save(values)
         project_root = _project_root(settings)
         p4_executable = _p4_executable(settings)
-        waapi_host, waapi_port = _waapi_endpoint(settings)
+        waapi_host, waapi_port, waapi_path, waapi_secure = _waapi_endpoint(settings)
         offline_test_mode = _offline_test_mode(settings)
         readiness = self._readiness_inspector(
             project_root,
@@ -174,6 +176,8 @@ class ReadOnlyGuiService:
             p4_workspace=True if offline_test_mode else None,
             waapi_host=waapi_host,
             waapi_port=waapi_port,
+            waapi_path=waapi_path,
+            waapi_secure=waapi_secure,
         )
         if offline_test_mode:
             readiness = _mark_perforce_skipped(readiness)
@@ -188,12 +192,18 @@ class ReadOnlyGuiService:
         object_root = _required_setting(settings, "objectRoot")
         chapter = _required_setting(settings, "chapter")
         waapi_url = _required_setting(settings, "waapiUrl")
-        scan = self._scanner(
-            project_root=project_root,
-            object_root=object_root,
-            chapter=chapter,
-            url=waapi_url,
-        )
+        try:
+            scan = self._scanner(
+                project_root=project_root,
+                object_root=object_root,
+                chapter=chapter,
+                url=waapi_url,
+            )
+        except WaapiError as exc:
+            raise GuiServiceError(
+                "Wwise WAAPI에서 source를 읽지 못했습니다. Wwise에서 프로젝트가 "
+                f"열려 있고 WAAPI가 활성화되어 있는지 확인하세요. 세부 정보: {exc}"
+            ) from exc
         plan = self._planner(scan)
         probe = (
             LocalTestWorkspaceProbe()
@@ -312,7 +322,7 @@ def _mark_perforce_skipped(readiness: PilotReadiness) -> PilotReadiness:
     return PilotReadiness(readiness.project_root, checks)
 
 
-def _waapi_endpoint(settings: Mapping[str, object]) -> tuple[str, int]:
+def _waapi_endpoint(settings: Mapping[str, object]) -> tuple[str, int, str, bool]:
     url = _required_setting(settings, "waapiUrl")
     from urllib.parse import urlparse
 
@@ -320,7 +330,10 @@ def _waapi_endpoint(settings: Mapping[str, object]) -> tuple[str, int]:
     if parsed.scheme not in {"ws", "wss"} or not parsed.hostname:
         raise GuiServiceError("WAAPI 주소는 ws:// 또는 wss:// 형식이어야 합니다.")
     port = parsed.port or (443 if parsed.scheme == "wss" else 80)
-    return parsed.hostname, port
+    path = parsed.path or "/waapi"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    return parsed.hostname, port, path, parsed.scheme == "wss"
 
 
 def _required_setting(settings: Mapping[str, object], key: str) -> str:

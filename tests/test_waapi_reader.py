@@ -1,8 +1,11 @@
 import os
 from pathlib import Path
+import time
 import unittest
 
 from wwise_p4_source_relocator.waapi_reader import (
+    WaapiError,
+    _run_bounded_live_scan,
     build_scan_result,
     scan_with_connection,
 )
@@ -10,6 +13,10 @@ from wwise_p4_source_relocator.waapi_reader import (
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "sample_project"
 OBJECT_ROOT = r"\Containers\Default Work Unit\VO\Temp_VO"
+
+
+def stalling_scan_worker(*_: object) -> None:
+    time.sleep(5)
 
 
 def sound_record(name: str, guid: str, category: str = "Script") -> dict[str, object]:
@@ -46,6 +53,14 @@ class FakeConnection:
 
 
 class WaapiReaderTests(unittest.TestCase):
+    def test_bounded_scan_returns_a_timeout_instead_of_hanging(self) -> None:
+        with self.assertRaisesRegex(WaapiError, "timed out"):
+            _run_bounded_live_scan(
+                {},
+                timeout_seconds=0.1,
+                worker=stalling_scan_worker,
+            )
+
     def test_builds_scan_items_and_prefixes_originals(self) -> None:
         guid = "{8886C06E-4664-4CEA-B3F1-8668CCDF3683}"
         result = build_scan_result(
