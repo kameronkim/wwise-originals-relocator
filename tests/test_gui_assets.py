@@ -15,7 +15,7 @@ class GuiAssetTests(unittest.TestCase):
     def test_desktop_assets_are_packaged_together(self) -> None:
         index = (ASSET_ROOT / "index.html").read_text(encoding="utf-8")
 
-        self.assertIn('href="styles.css?v=3"', index)
+        self.assertIn('href="styles.css?v=4"', index)
         self.assertIn('src="app.js?v=3"', index)
         self.assertTrue((ASSET_ROOT / "styles.css").is_file())
         self.assertTrue((ASSET_ROOT / "app.js").is_file())
@@ -23,6 +23,7 @@ class GuiAssetTests(unittest.TestCase):
     def test_gui_does_not_expose_apply_or_rollback_commands(self) -> None:
         index = (ASSET_ROOT / "index.html").read_text(encoding="utf-8")
         script = (ASSET_ROOT / "app.js").read_text(encoding="utf-8")
+        styles = (ASSET_ROOT / "styles.css").read_text(encoding="utf-8")
 
         self.assertNotIn('id="run-apply"', index)
         self.assertNotIn('id="run-rollback"', index)
@@ -35,6 +36,12 @@ class GuiAssetTests(unittest.TestCase):
         self.assertIn('id="offline-test-mode"', index)
         self.assertIn("Perforce 없이 로컬 테스트", index)
         self.assertIn("offlineTestMode", script)
+        self.assertNotIn("Apply · Rollback 기능 없음", index)
+        self.assertIn("--blue: #83b7d4", styles)
+        self.assertNotIn("--green:", styles)
+        self.assertIn("font-weight: 600", styles)
+        self.assertIn(".app-shell { height: 100%;", styles)
+        self.assertIn("body { height: 100%;", styles)
 
 
 if __name__ == "__main__":
