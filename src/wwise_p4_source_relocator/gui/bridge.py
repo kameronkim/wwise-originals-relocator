@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Mapping
 
-from .service import GuiServiceError, ReadOnlyGuiService
+from .service import GuiServiceError, PortableGuiService
 
 
 LOGGER = logging.getLogger(__name__)
@@ -13,9 +13,9 @@ LOGGER.addHandler(logging.NullHandler())
 
 
 class GuiApi:
-    """Small, read-only JavaScript API exposed to the local GUI."""
+    """Small JavaScript API exposed to the local portable GUI."""
 
-    def __init__(self, service: ReadOnlyGuiService) -> None:
+    def __init__(self, service: PortableGuiService) -> None:
         self.service = service
         self.window: Any | None = None
         self._operation_lock = Lock()
@@ -76,6 +76,30 @@ class GuiApi:
 
     def run_plan(self, values: Mapping[str, object]) -> dict[str, object]:
         return self._invoke_exclusive(self.service.run_plan, values)
+
+    def run_apply(
+        self,
+        values: Mapping[str, object],
+        source_file_name: str,
+        confirmation: str,
+    ) -> dict[str, object]:
+        return self._invoke_exclusive(
+            self.service.run_apply,
+            values,
+            source_file_name,
+            confirmation,
+        )
+
+    def run_rollback(
+        self,
+        values: Mapping[str, object],
+        confirmation: str,
+    ) -> dict[str, object]:
+        return self._invoke_exclusive(
+            self.service.run_rollback,
+            values,
+            confirmation,
+        )
 
     def _invoke_exclusive(self, function: Any, *args: object) -> dict[str, object]:
         if not self._operation_lock.acquire(blocking=False):

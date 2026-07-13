@@ -21,6 +21,8 @@ class PortablePackageTests(unittest.TestCase):
 
         self.assertIn("Portable 사용 가이드", guide)
         self.assertIn("빠른 시작", guide)
+        self.assertIn("단일 파일 적용과 Rollback", guide)
+        self.assertIn("프로그램은 submit하지 않습니다", guide)
         self.assertIn("현재 버전의 안전 범위", guide)
         self.assertNotIn("apply --only", guide)
         self.assertIn("고급 테스트 및 CLI 운영 가이드", advanced_guide)

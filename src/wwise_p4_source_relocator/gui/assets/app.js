@@ -3,6 +3,9 @@ const state = {
   doctorPassed: false,
   busy: false,
   system: {},
+  plan: null,
+  selectedItem: null,
+  activeOperation: null,
 };
 
 const checkLabels = {
@@ -75,6 +78,7 @@ function settingsFromForm() {
     chapter: element('chapter').value.trim(),
     waapiUrl: element('waapi-url').value.trim(),
     p4Executable: element('p4-executable').value.trim(),
+    changelist: element('changelist').value.trim(),
     offlineTestMode: element('offline-test-mode').checked,
   };
 }
@@ -85,6 +89,7 @@ function applySettings(settings) {
   element('chapter').value = settings.chapter || 'CH04';
   element('waapi-url').value = settings.waapiUrl || 'ws://127.0.0.1:8080/waapi';
   element('p4-executable').value = settings.p4Executable || '';
+  element('changelist').value = settings.changelist || '';
   element('offline-test-mode').checked = settings.offlineTestMode === true;
   updateProjectState();
   updateOfflineModePresentation();
@@ -109,8 +114,13 @@ function renderSystem(system) {
 
 function updateOfflineModePresentation() {
   const enabled = element('offline-test-mode').checked;
-  element('p4-executable').disabled = enabled;
-  element('choose-p4').disabled = enabled || state.busy || !state.bridgeReady;
+  const mutationLocked = Boolean(state.activeOperation);
+  element('p4-executable').disabled = enabled || mutationLocked;
+  element('changelist').disabled = enabled || mutationLocked;
+  element('offline-test-mode').disabled = mutationLocked;
+  element('project-root').disabled = mutationLocked;
+  element('choose-p4').disabled = enabled || mutationLocked || state.busy || !state.bridgeReady;
+  element('choose-project').disabled = mutationLocked || state.busy || !state.bridgeReady;
   element('p4-status').textContent = enabled
     ? '테스트에서 제외'
     : (state.system.p4Detected ? '감지됨' : '찾지 못함');
@@ -123,6 +133,7 @@ function updateOfflineModePresentation() {
   element('doctor-description').textContent = enabled
     ? 'Wwise 프로젝트, Originals WAV, Work Unit과 WAAPI 연결을 확인합니다. Perforce 점검은 제외됩니다.'
     : 'Wwise 프로젝트, Originals WAV, Work Unit, Perforce workspace와 WAAPI 연결을 확인합니다.';
+  updateApplyButtons();
 }
 
 function renderReadiness(result) {
@@ -165,7 +176,9 @@ function renderReadiness(result) {
   element('readiness-empty').hidden = true;
   list.hidden = false;
   state.doctorPassed = Boolean(result.ready);
-  element('run-plan').disabled = !state.doctorPassed || !state.bridgeReady;
+  element('run-plan').disabled = !state.doctorPassed
+    || !state.bridgeReady
+    || Boolean(state.activeOperation);
   setStep('doctor', state.doctorPassed ? 'done' : 'active');
   if (result.reports?.markdown) {
     const report = element('doctor-report');
@@ -189,6 +202,8 @@ function waapiReadinessMessage(result, check) {
 }
 
 function renderPlan(result) {
+  state.plan = result;
+  state.selectedItem = null;
   const counts = result.counts || {};
   element('move-count').textContent = counts['move-and-patch'] || 0;
   element('skip-count').textContent = counts.skip || 0;
@@ -205,6 +220,7 @@ function renderPlan(result) {
   for (const item of result.items || []) {
     const row = document.createElement('tr');
     row.append(
+      selectionCell(item, result),
       tableCell(item.sourceFileName || item.objectPath, 'file-name'),
       tableCell(item.from || '—', 'path-text'),
       tableCell(item.to || '—', 'path-text'),
@@ -215,12 +231,72 @@ function renderPlan(result) {
   }
   element('plan-table-wrap').hidden = false;
   renderValidationIssues(result.validation?.issues || []);
+  renderApplySelection();
   setStep('plan', 'done');
   if (result.reports?.planMarkdown) {
     const report = element('plan-report');
     report.textContent = `계획 보고서: ${result.reports.planMarkdown}`;
     report.hidden = false;
   }
+}
+
+function selectionCell(item, result) {
+  const cell = document.createElement('td');
+  const selectable = item.action === 'move-and-patch'
+    && result.validation?.valid
+    && !result.offlineTestMode
+    && !state.activeOperation;
+  const radio = document.createElement('input');
+  radio.type = 'radio';
+  radio.name = 'apply-source';
+  radio.className = 'row-selector';
+  radio.disabled = !selectable;
+  radio.setAttribute('aria-label', `${item.sourceFileName || item.objectPath} 선택`);
+  radio.addEventListener('change', () => {
+    state.selectedItem = item;
+    renderApplySelection();
+  });
+  cell.append(radio);
+  return cell;
+}
+
+function renderApplySelection() {
+  if (state.activeOperation) {
+    renderActiveOperation(state.activeOperation);
+    return;
+  }
+  const selected = state.selectedItem;
+  element('active-operation').hidden = true;
+  element('apply-controls').hidden = !selected;
+  element('apply-empty').hidden = Boolean(selected);
+  element('apply-state').textContent = selected ? '1개 선택됨' : '계획 필요';
+  element('apply-state').className = `panel-state ${selected ? 'ready' : 'neutral'}`;
+  if (selected) {
+    element('selected-file').textContent = selected.sourceFileName;
+    element('selected-move').textContent = `${selected.from} → ${selected.to}`;
+    setStep('apply', 'active');
+  }
+  updateApplyButtons();
+}
+
+function renderActiveOperation(operation) {
+  state.activeOperation = operation || null;
+  const active = Boolean(operation);
+  element('active-operation').hidden = !active;
+  element('apply-controls').hidden = true;
+  element('apply-empty').hidden = active;
+  element('apply-state').textContent = active ? 'Rollback 대기' : '계획 필요';
+  element('apply-state').className = `panel-state ${active ? 'warning' : 'neutral'}`;
+  if (active) {
+    element('active-file').textContent = operation.sourceFileName;
+    element('active-move').textContent = `${operation.from} → ${operation.to}`;
+    element('apply-report').textContent = `Rollback manifest: ${operation.manifest}`;
+    element('apply-report').hidden = false;
+    setStep('apply', 'active');
+  } else {
+    element('apply-report').hidden = true;
+  }
+  updateOfflineModePresentation();
 }
 
 function renderValidationIssues(issues) {
@@ -271,9 +347,32 @@ function setBusy(busy, message = '준비됨') {
   element('activity-dot').className = `activity-dot ${busy ? 'busy' : ''}`;
   element('activity-text').textContent = message;
   element('run-doctor').disabled = busy || !state.bridgeReady;
-  element('run-plan').disabled = busy || !state.bridgeReady || !state.doctorPassed;
-  element('choose-project').disabled = busy || !state.bridgeReady;
-  element('choose-p4').disabled = busy || !state.bridgeReady || element('offline-test-mode').checked;
+  element('run-plan').disabled = busy
+    || !state.bridgeReady
+    || !state.doctorPassed
+    || Boolean(state.activeOperation);
+  element('choose-project').disabled = busy || !state.bridgeReady || Boolean(state.activeOperation);
+  element('choose-p4').disabled = busy || !state.bridgeReady || element('offline-test-mode').checked || Boolean(state.activeOperation);
+  updateApplyButtons();
+}
+
+function updateApplyButtons() {
+  const offline = element('offline-test-mode')?.checked === true;
+  const applyButton = element('run-apply');
+  const rollbackButton = element('run-rollback');
+  if (applyButton) {
+    applyButton.disabled = state.busy
+      || !state.bridgeReady
+      || offline
+      || !state.selectedItem
+      || Boolean(state.activeOperation);
+  }
+  if (rollbackButton) {
+    rollbackButton.disabled = state.busy
+      || !state.bridgeReady
+      || offline
+      || !state.activeOperation;
+  }
 }
 
 function showError(message) {
@@ -307,6 +406,10 @@ async function initialize() {
     const initial = await invoke('get_initial_state');
     applySettings(initial.settings || {});
     renderSystem(initial.system || {});
+    if (initial.activeOperation) renderActiveOperation(initial.activeOperation);
+    if ((initial.activeOperationCount || 0) > 1) {
+      showError('복구가 필요한 manifest가 여러 개 있습니다. 로그와 reports 폴더를 운영 담당자에게 전달하세요.');
+    }
     setBusy(false);
   } catch (error) {
     showError(error.message);
@@ -375,6 +478,66 @@ async function runPlan() {
   }
 }
 
+async function runApply() {
+  const item = state.selectedItem;
+  if (!item) return;
+  const accepted = window.confirm(
+    `${item.sourceFileName}\n\n이 WAV 한 개를 Perforce move하고 Work Unit 경로를 변경합니다.\n이 프로그램은 submit하지 않습니다. 계속할까요?`,
+  );
+  if (!accepted) return;
+  clearError();
+  setBusy(true, `${item.sourceFileName}을 적용하고 있습니다…`);
+  try {
+    const result = await invoke(
+      'run_apply',
+      settingsFromForm(),
+      item.sourceFileName,
+      item.sourceFileName,
+    );
+    if (!result.applied) {
+      if (result.activeOperation) renderActiveOperation(result.activeOperation);
+      setBusy(false);
+      showError(result.errorMessage || '파일 적용을 완료하지 못했습니다.');
+      return;
+    }
+    renderActiveOperation(result.activeOperation);
+    setBusy(false, '한 파일을 적용했습니다. Wwise에서 외부 변경을 다시 불러오세요');
+  } catch (error) {
+    setBusy(false);
+    showError(error.message);
+  }
+}
+
+async function runRollback() {
+  const operation = state.activeOperation;
+  if (!operation) return;
+  const accepted = window.confirm(
+    `${operation.sourceFileName}\n\nmanifest에 기록된 WAV와 Work Unit만 원래 상태로 복구합니다. 계속할까요?`,
+  );
+  if (!accepted) return;
+  clearError();
+  setBusy(true, `${operation.sourceFileName}을 복구하고 있습니다…`);
+  try {
+    const result = await invoke(
+      'run_rollback',
+      settingsFromForm(),
+      operation.sourceFileName,
+    );
+    if (!result.rolledBack) {
+      renderActiveOperation(result.activeOperation || operation);
+      setBusy(false);
+      showError('Rollback을 완료하지 못했습니다. 보고서와 로그를 확인하세요.');
+      return;
+    }
+    renderActiveOperation(null);
+    resetResults();
+    setBusy(false, 'Rollback을 완료했습니다. Wwise에서 외부 변경을 다시 불러오세요');
+  } catch (error) {
+    setBusy(false);
+    showError(error.message);
+  }
+}
+
 function changeOfflineMode() {
   resetResults();
   updateOfflineModePresentation();
@@ -398,6 +561,14 @@ function resetResults() {
   element('validation-issues').hidden = true;
   element('plan-report').hidden = true;
   element('offline-result-note').hidden = true;
+  state.plan = null;
+  state.selectedItem = null;
+  if (!state.activeOperation) {
+    element('apply-controls').hidden = true;
+    element('apply-empty').hidden = false;
+    element('apply-state').textContent = '계획 필요';
+    element('apply-state').className = 'panel-state neutral';
+  }
   setStep('doctor', 'active');
   const planStep = document.querySelector('[data-step="plan"]');
   planStep?.classList.remove('active', 'done');
@@ -414,6 +585,7 @@ function loadPreview() {
     chapter: 'CH04',
     waapiUrl: 'ws://127.0.0.1:8080/waapi',
     p4Executable: 'C:\\Program Files\\Perforce\\p4.exe',
+    changelist: '123456',
     offlineTestMode: false,
   });
   renderSystem({
@@ -432,15 +604,14 @@ function loadPreview() {
     reports: {markdown: 'data/reports/readiness.md'},
   });
   renderPlan({
-    counts: {'move-and-patch': 1, skip: 1, 'manual-review': 1},
+    counts: {'move-and-patch': 1, skip: 1, 'manual-review': 0},
     validation: {
-      valid: false,
-      issues: [{code: 'manual-review', objectPath: '\\Containers\\VO\\Shared_Line'}],
+      valid: true,
+      issues: [],
     },
     items: [
       {sourceFileName: 'CH04_S102_WT_001.wav', from: 'Scenario/CH04/CH04_S102_WT_001.wav', to: 'Script/CH04/CH04_S102_WT_001.wav', action: 'move-and-patch'},
       {sourceFileName: 'CH04_CUT_010.wav', from: 'Cutscene/CH04/CH04_CUT_010.wav', to: 'Cutscene/CH04/CH04_CUT_010.wav', action: 'skip'},
-      {sourceFileName: 'Shared_Line.wav', from: 'Scenario/CH04/Shared_Line.wav', to: null, action: 'manual-review'},
     ],
     reports: {planMarkdown: 'data/reports/plan.md'},
   });
@@ -451,6 +622,8 @@ element('choose-project').addEventListener('click', chooseProject);
 element('choose-p4').addEventListener('click', chooseP4);
 element('run-doctor').addEventListener('click', runDoctor);
 element('run-plan').addEventListener('click', runPlan);
+element('run-apply').addEventListener('click', runApply);
+element('run-rollback').addEventListener('click', runRollback);
 element('project-root').addEventListener('input', updateProjectState);
 element('offline-test-mode').addEventListener('change', changeOfflineMode);
 window.addEventListener('pywebviewready', initialize, {once: true});

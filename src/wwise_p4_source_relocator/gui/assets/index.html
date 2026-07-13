@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Wwise Originals Relocator portable read-only desktop interface">
+  <meta name="description" content="Wwise Originals Relocator portable desktop interface">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="styles.css?v=5">
+  <link rel="stylesheet" href="styles.css?v=6">
   <title>Wwise Originals Relocator</title>
 </head>
 <body>
@@ -21,7 +21,7 @@
         </div>
       </div>
       <div class="header-status">
-        <span class="mode-badge">읽기 전용</span>
+        <span class="mode-badge">단일 파일 안전 적용</span>
         <span id="bridge-status" class="connection-badge pending">앱 연결 확인 중</span>
       </div>
     </header>
@@ -33,6 +33,7 @@
           <li class="active" data-step="project"><span>1</span><div><strong>프로젝트</strong><small>Wwise 폴더 선택</small></div></li>
           <li data-step="doctor"><span>2</span><div><strong>환경 확인</strong><small id="doctor-step-detail">Wwise · P4 · WAAPI</small></div></li>
           <li data-step="plan"><span>3</span><div><strong>이동 계획</strong><small>변경 전 검토</small></div></li>
+          <li data-step="apply"><span>4</span><div><strong>적용 · 복구</strong><small>한 번에 한 파일</small></div></li>
         </ol>
 
       </aside>
@@ -66,7 +67,7 @@
             <input id="project-root" type="text" placeholder="Wwise .wproj가 있는 폴더를 선택하세요" autocomplete="off">
             <button id="choose-project" class="secondary-button" type="button">폴더 선택</button>
           </div>
-          <p class="field-help">기존 프로젝트를 수정하지 않고 구조와 연결 상태만 읽습니다.</p>
+          <p class="field-help">환경 확인과 이동 계획까지는 프로젝트를 변경하지 않습니다.</p>
 
           <label class="offline-mode-option" for="offline-test-mode">
             <input id="offline-test-mode" type="checkbox">
@@ -99,6 +100,10 @@
                   <input id="p4-executable" type="text" placeholder="자동 감지">
                   <button id="choose-p4" class="text-button" type="button">직접 선택</button>
                 </div>
+              </label>
+              <label>
+                <span>Perforce changelist 번호</span>
+                <input id="changelist" type="text" inputmode="numeric" placeholder="선택 사항">
               </label>
             </div>
           </details>
@@ -144,7 +149,7 @@
             </div>
             <button id="run-plan" class="primary-button" type="button" disabled>이동 계획 만들기</button>
           </div>
-          <p class="panel-description">Wwise에서 source를 읽고 제안 경로를 표시합니다. 실제 파일이나 Work Unit은 변경하지 않습니다.</p>
+          <p class="panel-description">Wwise에서 source를 읽고 제안 경로를 표시합니다. 적용할 파일은 검증을 통과한 항목 중 하나만 선택할 수 있습니다.</p>
           <div id="offline-result-note" class="offline-result-note" hidden>
             로컬 테스트 결과입니다. 파일 경로는 검증하지만 Perforce workspace와 opened 상태는 확인하지 않습니다.
           </div>
@@ -163,7 +168,7 @@
 
           <div id="plan-table-wrap" class="table-wrap" hidden>
             <table>
-              <thead><tr><th>파일</th><th>현재 위치</th><th>이동할 위치</th><th>상태</th><th>확인 내용</th></tr></thead>
+              <thead><tr><th>선택</th><th>파일</th><th>현재 위치</th><th>이동할 위치</th><th>상태</th><th>확인 내용</th></tr></thead>
               <tbody id="plan-table-body"></tbody>
             </table>
           </div>
@@ -172,6 +177,50 @@
             <ul id="validation-issue-list"></ul>
           </div>
           <div id="plan-report" class="report-path" hidden></div>
+        </section>
+
+        <section class="panel" aria-labelledby="apply-title">
+          <div class="panel-heading">
+            <div>
+              <span class="step-number">04</span>
+              <h2 id="apply-title">단일 파일 적용 및 복구</h2>
+            </div>
+            <span id="apply-state" class="panel-state neutral">계획 필요</span>
+          </div>
+          <p class="panel-description">선택한 WAV 하나만 <code>p4 move</code>하고 해당 Work Unit의 source 경로만 변경합니다. 이 프로그램은 submit을 실행하지 않습니다.</p>
+
+          <div id="apply-empty" class="empty-state compact-empty">
+            <span aria-hidden="true">1</span>
+            <p>검증된 이동 계획에서 파일 하나를 선택하세요.</p>
+          </div>
+
+          <div id="apply-controls" class="apply-controls" hidden>
+            <div class="selected-operation">
+              <small>적용할 파일</small>
+              <strong id="selected-file">—</strong>
+              <p id="selected-move">—</p>
+            </div>
+            <div class="safety-note">
+              <strong>적용 전 확인</strong>
+              <span>Wwise 저장을 마치고, P4V에서 올바른 workspace와 changelist를 사용 중인지 확인하세요.</span>
+            </div>
+            <button id="run-apply" class="primary-button danger-action" type="button" disabled>선택한 파일 적용</button>
+          </div>
+
+          <div id="active-operation" class="active-operation" hidden>
+            <div>
+              <small>현재 적용된 파일</small>
+              <strong id="active-file">—</strong>
+              <p id="active-move">—</p>
+            </div>
+            <ol>
+              <li>Wwise의 External Project Changes 안내에서 affected Work Unit을 다시 불러옵니다.</li>
+              <li>P4V에서 WAV move와 Work Unit diff를 검토합니다.</li>
+              <li>테스트가 끝나면 아래 Rollback으로 원래 상태를 복구합니다.</li>
+            </ol>
+            <button id="run-rollback" class="secondary-button rollback-button" type="button">이 파일 Rollback</button>
+          </div>
+          <div id="apply-report" class="report-path" hidden></div>
         </section>
       </main>
     </div>
@@ -183,6 +232,6 @@
       <span id="app-version">v—</span>
     </footer>
   </div>
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>

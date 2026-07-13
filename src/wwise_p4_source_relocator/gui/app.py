@@ -9,7 +9,7 @@ import traceback
 
 from .. import __version__
 from .bridge import GuiApi
-from .service import ReadOnlyGuiService
+from .service import PortableGuiService
 
 
 LOGGER = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ def main() -> int:
     if os.environ.get("WWISE_RELOCATOR_SMOKE_TEST") == "1":
         return _run_portable_smoke_check(index_path)
 
-    service = ReadOnlyGuiService()
+    service = PortableGuiService()
     _configure_logging(service.store.data_root)
     LOGGER.info(
         "Starting Wwise Originals Relocator %s on %s",

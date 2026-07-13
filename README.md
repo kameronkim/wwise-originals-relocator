@@ -37,23 +37,23 @@ only to create its isolated test fixture.
 Planning commands remain read-only, and `apply` refuses to run unless `--only`
 selects exactly one safe move candidate.
 
-For non-programmer operators, the primary distribution is a portable,
-read-only desktop GUI. It requires no Python installation on the target PC. It
+For non-programmer operators, the primary distribution is a portable desktop
+GUI. It requires no Python installation on the target PC. It
 uses the existing Wwise Authoring and Perforce CLI setup, runs readiness checks,
-builds a relocation plan, and stores reports beside the application. The GUI
-deliberately exposes no apply or rollback action and never installs production
-prerequisites. See the
+builds a relocation plan, and stores reports beside the application. After a
+valid plan, the GUI can apply exactly one selected WAV through the same guarded
+manifest-first contract as the CLI and can roll back only that manifest. It
+never submits a changelist or installs production prerequisites. See the
 [portable GUI guide](docs/portable-gui.md) and its
 [offline HTML edition](docs/usage-guide.html).
 
 When Perforce is not available, the GUI's explicit local test mode can still
 exercise Wwise/WAAPI scanning, local path validation, planning, and report
 rendering. It skips only Perforce CLI, workspace, and opened-file checks and
-continues to expose no mutation controls.
+keeps all mutation controls disabled.
 
-The repository also retains the CLI for developers and validation operators. It
-can perform the guarded single-file pilot described above. GUI read-only scope
-does not remove or broaden that separate CLI contract.
+The repository also retains the CLI for developers and validation operators.
+Both surfaces share the same single-file apply and rollback implementation.
 
 The primary [Korean usage guide](docs/usage-guide.html) follows the portable
 GUI workflow for non-programmer operators. Developers and validation operators

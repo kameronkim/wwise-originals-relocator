@@ -2,20 +2,26 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from wwise_p4_source_relocator.applier import ApplyError
 from wwise_p4_source_relocator.gui.bridge import GuiApi
 from wwise_p4_source_relocator.gui.service import (
     DEFAULT_SETTINGS,
     GuiServiceError,
     LocalTestWorkspaceProbe,
+    PortableGuiService,
     PortableSettingsStore,
-    ReadOnlyGuiService,
 )
 from wwise_p4_source_relocator.models import (
+    AffectedObjectRecord,
+    MoveRecord,
+    PatchedFileRecord,
+    RollbackManifest,
     ScanResult,
     SourceItem,
     ValidationResult,
 )
 from wwise_p4_source_relocator.readiness import PilotReadiness, ReadinessCheck
+from wwise_p4_source_relocator.report import write_json_document
 from wwise_p4_source_relocator.waapi_reader import WaapiError
 
 
@@ -62,6 +68,51 @@ def failing_scan(**_: object) -> ScanResult:
     raise WaapiError("scan timed out")
 
 
+def fake_apply(plan, **values: object):
+    item = plan.items[0]
+    manifest = RollbackManifest(
+        created_at="2026-07-13T00:00:00+00:00",
+        project_root=plan.project_root,
+        changelist=values["changelist"],
+        moves=(MoveRecord(item.from_relative_path, item.to_relative_path),),
+        patched_files=(
+            PatchedFileRecord(
+                relative_path=item.work_unit_path,
+                object_guid=item.guid,
+                old_xml_path="old.wav",
+                new_xml_path="new.wav",
+                original_sha256="a" * 64,
+                patched_sha256="b" * 64,
+            ),
+        ),
+        affected_objects=(
+            AffectedObjectRecord(
+                object_path=item.object_path,
+                guid=item.guid,
+                before_source_relative_path=item.from_relative_path,
+                after_source_relative_path=item.to_relative_path,
+            ),
+        ),
+        unmanaged_files_to_delete=(),
+        status="applied",
+    )
+    write_json_document(manifest, values["manifest_path"])
+    return manifest, ValidationResult(())
+
+
+def fake_rollback(manifest, **values: object) -> ValidationResult:
+    write_json_document(manifest.with_status("rolled-back"), values["manifest_path"])
+    return ValidationResult(())
+
+
+def failed_apply_with_recovery_manifest(plan, **values: object):
+    manifest, _ = fake_apply(plan, **values)
+    write_json_document(
+        manifest.with_status("failed"), values["manifest_path"]
+    )
+    raise ApplyError("automatic rollback failed")
+
+
 class PortableSettingsStoreTests(unittest.TestCase):
     def test_settings_are_saved_beside_portable_data(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -82,8 +133,8 @@ class PortableSettingsStoreTests(unittest.TestCase):
             self.assertEqual(saved, store.load())
 
 
-class ReadOnlyGuiServiceTests(unittest.TestCase):
-    def make_service(self, data_root: Path, **overrides: object) -> ReadOnlyGuiService:
+class PortableGuiServiceTests(unittest.TestCase):
+    def make_service(self, data_root: Path, **overrides: object) -> PortableGuiService:
         arguments = {
             "data_root": data_root,
             "readiness_inspector": ready,
@@ -91,7 +142,7 @@ class ReadOnlyGuiServiceTests(unittest.TestCase):
             "plan_validator": validate,
         }
         arguments.update(overrides)
-        return ReadOnlyGuiService(**arguments)
+        return PortableGuiService(**arguments)
 
     def settings(self, project_root: Path) -> dict[str, object]:
         return {
@@ -100,7 +151,7 @@ class ReadOnlyGuiServiceTests(unittest.TestCase):
             "p4Executable": "/tools/p4",
         }
 
-    def test_initial_state_exposes_read_only_capabilities(self) -> None:
+    def test_initial_state_exposes_single_file_mutation_capabilities(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service = self.make_service(Path(directory) / "data")
 
@@ -108,15 +159,97 @@ class ReadOnlyGuiServiceTests(unittest.TestCase):
 
             self.assertEqual(
                 {
-                    "readOnly": True,
-                    "apply": False,
-                    "rollback": False,
+                    "readOnly": False,
+                    "apply": True,
+                    "rollback": True,
                     "installsDependencies": False,
                     "offlineTestMode": True,
                 },
                 state["capabilities"],
             )
             self.assertEqual("0.1.0", state["system"]["appVersion"])
+
+    def test_gui_applies_one_planned_file_and_recovers_it_from_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(
+                root / "data",
+                applier=fake_apply,
+                rollbacker=fake_rollback,
+                p4_client_factory=lambda _: object(),
+                workspace_probe_factory=lambda _: object(),
+            )
+            settings = {
+                **self.settings(project_root),
+                "changelist": "123456",
+            }
+            service.run_plan(settings)
+
+            applied = service.run_apply(settings, "line.wav", "line.wav")
+
+            self.assertTrue(applied["applied"])
+            self.assertEqual("123456", applied["activeOperation"]["changelist"])
+            self.assertTrue(Path(applied["reports"]["manifest"]).is_file())
+            recovered = service.initial_state()["activeOperation"]
+            self.assertEqual("line.wav", recovered["sourceFileName"])
+
+            rolled_back = service.run_rollback(settings, "line.wav")
+
+            self.assertTrue(rolled_back["rolledBack"])
+            self.assertIsNone(rolled_back["activeOperation"])
+            self.assertIsNone(service.initial_state()["activeOperation"])
+
+    def test_offline_mode_cannot_apply_a_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(root / "data", applier=fake_apply)
+            settings = {
+                **self.settings(project_root),
+                "offlineTestMode": True,
+            }
+            service.run_plan(settings)
+
+            with self.assertRaisesRegex(GuiServiceError, "로컬 테스트"):
+                service.run_apply(settings, "line.wav", "line.wav")
+
+    def test_apply_rejects_a_non_numeric_changelist(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(root / "data", applier=fake_apply)
+            settings = {
+                **self.settings(project_root),
+                "changelist": "release-audio",
+            }
+            service.run_plan(settings)
+
+            with self.assertRaisesRegex(GuiServiceError, "숫자만"):
+                service.run_apply(settings, "line.wav", "line.wav")
+
+    def test_failed_automatic_recovery_remains_available_to_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(
+                root / "data",
+                applier=failed_apply_with_recovery_manifest,
+                p4_client_factory=lambda _: object(),
+                workspace_probe_factory=lambda _: object(),
+            )
+            settings = self.settings(project_root)
+            service.run_plan(settings)
+
+            result = service.run_apply(settings, "line.wav", "line.wav")
+
+            self.assertFalse(result["applied"])
+            self.assertEqual("failed", result["activeOperation"]["status"])
+            self.assertIn("Rollback을 다시 실행", result["errorMessage"])
 
     def test_doctor_writes_portable_reports(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -10,7 +10,14 @@ import shutil
 import sys
 
 from .. import __version__
-from ..models import RelocationPlan, ScanResult, ValidationResult
+from ..applier import ApplyError, apply_single_file
+from ..models import (
+    RelocationPlan,
+    RollbackManifest,
+    ScanResult,
+    ValidationResult,
+)
+from ..p4_client import P4Client
 from ..pilot_project import find_wwise_console
 from ..planner import build_relocation_plan
 from ..preflight import P4WorkspaceProbe, validate_relocation_plan
@@ -21,10 +28,12 @@ from ..readiness import (
     render_readiness_markdown,
 )
 from ..report import (
+    read_rollback_manifest,
     render_relocation_plan,
     render_validation,
     write_json_document,
 )
+from ..rollback import rollback_manifest
 from ..waapi_reader import WaapiError, scan_live
 
 
@@ -34,6 +43,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "chapter": "CH04",
     "waapiUrl": "ws://127.0.0.1:8080/waapi",
     "p4Executable": "",
+    "changelist": "",
     "offlineTestMode": False,
 }
 
@@ -83,7 +93,7 @@ class PortableSettingsStore:
         return settings
 
 
-class ReadOnlyGuiService:
+class PortableGuiService:
     def __init__(
         self,
         *,
@@ -92,12 +102,27 @@ class ReadOnlyGuiService:
         scanner: Callable[..., ScanResult] = scan_live,
         planner: Callable[[ScanResult], RelocationPlan] = build_relocation_plan,
         plan_validator: Callable[..., ValidationResult] = validate_relocation_plan,
+        applier: Callable[
+            ..., tuple[RollbackManifest, ValidationResult]
+        ] = apply_single_file,
+        rollbacker: Callable[..., ValidationResult] = rollback_manifest,
+        p4_client_factory: Callable[[str], P4Client] | None = None,
+        workspace_probe_factory: Callable[[str], P4WorkspaceProbe] | None = None,
     ) -> None:
         self.store = PortableSettingsStore(data_root)
         self._readiness_inspector = readiness_inspector
         self._scanner = scanner
         self._planner = planner
         self._plan_validator = plan_validator
+        self._applier = applier
+        self._rollbacker = rollbacker
+        self._p4_client_factory = p4_client_factory or _live_p4_client
+        self._workspace_probe_factory = (
+            workspace_probe_factory or P4WorkspaceProbe
+        )
+        self._planned_plan: RelocationPlan | None = None
+        self._planned_validation: ValidationResult | None = None
+        self._planned_settings: tuple[str, ...] | None = None
 
     def initial_state(self) -> dict[str, object]:
         settings = self.store.load()
@@ -105,6 +130,7 @@ class ReadOnlyGuiService:
         if not settings["p4Executable"] and detected_p4:
             settings["p4Executable"] = detected_p4
         console = find_wwise_console()
+        active_operations = self._active_manifests_for_settings(settings)
         return {
             "settings": settings,
             "system": {
@@ -118,18 +144,26 @@ class ReadOnlyGuiService:
                 "wwiseDetected": console is not None,
             },
             "capabilities": {
-                "readOnly": True,
-                "apply": False,
-                "rollback": False,
+                "readOnly": False,
+                "apply": True,
+                "rollback": True,
                 "installsDependencies": False,
                 "offlineTestMode": True,
             },
+            "activeOperation": (
+                _manifest_summary(*active_operations[0])
+                if len(active_operations) == 1
+                else None
+            ),
+            "activeOperationCount": len(active_operations),
         }
 
     def update_settings(self, values: Mapping[str, object]) -> dict[str, object]:
+        self._clear_planned_state()
         return self.store.save(values)
 
     def run_doctor(self, values: Mapping[str, object]) -> dict[str, object]:
+        self._clear_planned_state()
         settings = self.store.save(values)
         project_root = _project_root(settings)
         p4_executable = _p4_executable(settings)
@@ -167,6 +201,7 @@ class ReadOnlyGuiService:
         }
 
     def run_plan(self, values: Mapping[str, object]) -> dict[str, object]:
+        self._clear_planned_state()
         settings = self.store.save(values)
         project_root = _project_root(settings)
         p4_executable = _p4_executable(settings)
@@ -217,6 +252,9 @@ class ReadOnlyGuiService:
             else P4WorkspaceProbe(executable=p4_executable)
         )
         validation = self._plan_validator(plan, probe=probe)
+        self._planned_plan = plan
+        self._planned_validation = validation
+        self._planned_settings = _plan_settings_signature(settings)
 
         report_root = self._new_report_root("plan")
         scan_path = report_root / "scan.json"
@@ -259,11 +297,177 @@ class ReadOnlyGuiService:
             },
         }
 
+    def run_apply(
+        self,
+        values: Mapping[str, object],
+        source_file_name: str,
+        confirmation: str,
+    ) -> dict[str, object]:
+        settings = self.store.save(values)
+        project_root = _project_root(settings)
+        if _offline_test_mode(settings):
+            raise GuiServiceError(
+                "Perforce 없는 로컬 테스트에서는 파일을 적용할 수 없습니다."
+            )
+        selected = source_file_name.strip()
+        if not selected or confirmation != selected:
+            raise GuiServiceError("선택한 파일 확인이 일치하지 않습니다.")
+        if self._planned_plan is None or self._planned_validation is None:
+            raise GuiServiceError(
+                "이동 계획을 다시 만든 뒤 파일을 적용해 주세요."
+            )
+        if self._planned_settings != _plan_settings_signature(settings):
+            raise GuiServiceError(
+                "프로젝트 설정이 변경되었습니다. 환경 확인과 이동 계획을 "
+                "다시 실행해 주세요."
+            )
+        if not self._planned_validation.is_valid:
+            raise GuiServiceError(
+                "사전 검증에 해결할 항목이 있습니다. 적용 전에 모두 "
+                "확인해 주세요."
+            )
+        active = self._active_manifests(project_root)
+        if active:
+            raise GuiServiceError(
+                "아직 복구되지 않은 단일 파일 작업이 있습니다. 먼저 "
+                "Rollback을 완료해 주세요."
+            )
+
+        p4_executable = _p4_executable(settings)
+        report_root = self._new_report_root("apply")
+        manifest_path = report_root / "rollback-manifest.json"
+        validation_path = report_root / "apply-validation.md"
+        changelist = _changelist_setting(settings)
+        try:
+            manifest, validation = self._applier(
+                self._planned_plan,
+                only=selected,
+                changelist=changelist,
+                manifest_path=manifest_path,
+                p4=self._p4_client_factory(p4_executable),
+                probe=self._workspace_probe_factory(p4_executable),
+            )
+        except ApplyError as exc:
+            recovery = self._active_manifests(project_root)
+            if len(recovery) == 1:
+                recovery_path, recovery_manifest = recovery[0]
+                self._clear_planned_state()
+                return {
+                    "applied": False,
+                    "activeOperation": _manifest_summary(
+                        recovery_path, recovery_manifest
+                    ),
+                    "errorMessage": (
+                        "파일 적용과 자동 복구를 완료하지 못했습니다. "
+                        f"Rollback을 다시 실행해 주세요. 세부 정보: {exc}"
+                    ),
+                    "reports": {"manifest": recovery_path.as_posix()},
+                }
+            raise GuiServiceError(
+                "파일 적용을 완료하지 못했습니다. 자동 복구 결과를 "
+                f"확인하세요. 세부 정보: {exc}"
+            ) from exc
+        validation_path.write_text(
+            render_validation(validation), encoding="utf-8"
+        )
+        self._clear_planned_state()
+        return {
+            "applied": True,
+            "activeOperation": _manifest_summary(manifest_path, manifest),
+            "validation": validation.to_dict(),
+            "requiresWwiseReload": True,
+            "reports": {
+                "manifest": manifest_path.as_posix(),
+                "validation": validation_path.as_posix(),
+            },
+        }
+
+    def run_rollback(
+        self,
+        values: Mapping[str, object],
+        confirmation: str,
+    ) -> dict[str, object]:
+        settings = self.store.save(values)
+        project_root = _project_root(settings)
+        if _offline_test_mode(settings):
+            raise GuiServiceError(
+                "Perforce 없는 로컬 테스트에서는 Rollback을 실행할 수 없습니다."
+            )
+        active = self._active_manifests(project_root)
+        if len(active) != 1:
+            raise GuiServiceError(
+                "Rollback 가능한 단일 파일 manifest를 정확히 하나 "
+                "찾을 수 없습니다."
+            )
+        manifest_path, manifest = active[0]
+        source_file_name = Path(manifest.moves[0].to_relative_path).name
+        if confirmation != source_file_name:
+            raise GuiServiceError("Rollback 파일 확인이 일치하지 않습니다.")
+
+        result = self._rollbacker(
+            manifest,
+            p4=self._p4_client_factory(_p4_executable(settings)),
+            manifest_path=manifest_path,
+        )
+        report_root = self._new_report_root("rollback")
+        validation_path = report_root / "rollback-validation.md"
+        validation_path.write_text(render_validation(result), encoding="utf-8")
+        self._clear_planned_state()
+        return {
+            "rolledBack": result.is_valid,
+            "validation": result.to_dict(),
+            "requiresWwiseReload": result.is_valid,
+            "activeOperation": None if result.is_valid else _manifest_summary(
+                manifest_path, read_rollback_manifest(manifest_path)
+            ),
+            "reports": {
+                "manifest": manifest_path.as_posix(),
+                "validation": validation_path.as_posix(),
+            },
+        }
+
+    def _active_manifests(
+        self, project_root: Path
+    ) -> list[tuple[Path, RollbackManifest]]:
+        active: list[tuple[Path, RollbackManifest]] = []
+        report_root = self.store.data_root / "reports"
+        for path in sorted(report_root.glob("*-apply/rollback-manifest.json")):
+            try:
+                manifest = read_rollback_manifest(path)
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+            if (
+                manifest.status in {"applied", "failed"}
+                and len(manifest.moves) == 1
+                and len(manifest.patched_files) == 1
+                and len(manifest.affected_objects) == 1
+                and manifest.project_root.resolve() == project_root.resolve()
+            ):
+                active.append((path.resolve(), manifest))
+        return active
+
+    def _active_manifests_for_settings(
+        self, settings: Mapping[str, object]
+    ) -> list[tuple[Path, RollbackManifest]]:
+        raw = settings.get("projectRoot")
+        if not isinstance(raw, str) or not raw.strip():
+            return []
+        return self._active_manifests(Path(raw).expanduser().resolve())
+
+    def _clear_planned_state(self) -> None:
+        self._planned_plan = None
+        self._planned_validation = None
+        self._planned_settings = None
+
     def _new_report_root(self, operation: str) -> Path:
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
         path = self.store.data_root / "reports" / f"{timestamp}-{operation}"
         path.mkdir(parents=True, exist_ok=False)
         return path
+
+
+# Keep the original import available for callers built against the read-only GUI.
+ReadOnlyGuiService = PortableGuiService
 
 
 def resolve_data_root(value: str | Path | None = None) -> Path:
@@ -320,6 +524,53 @@ def _p4_executable(settings: Mapping[str, object]) -> str:
 
 def _offline_test_mode(settings: Mapping[str, object]) -> bool:
     return settings.get("offlineTestMode") is True
+
+
+def _optional_setting(settings: Mapping[str, object], key: str) -> str | None:
+    value = settings.get(key)
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _changelist_setting(settings: Mapping[str, object]) -> str | None:
+    changelist = _optional_setting(settings, "changelist")
+    if changelist is not None and not changelist.isdigit():
+        raise GuiServiceError(
+            "Perforce changelist 번호에는 숫자만 입력해 주세요."
+        )
+    return changelist
+
+
+def _plan_settings_signature(settings: Mapping[str, object]) -> tuple[str, ...]:
+    return (
+        str(_project_root(settings)),
+        _required_setting(settings, "objectRoot"),
+        _required_setting(settings, "chapter"),
+        _p4_executable(settings),
+        "offline" if _offline_test_mode(settings) else "perforce",
+    )
+
+
+def _live_p4_client(executable: str) -> P4Client:
+    return P4Client(executable=executable, dry_run=False)
+
+
+def _manifest_summary(
+    manifest_path: Path, manifest: RollbackManifest
+) -> dict[str, object]:
+    move = manifest.moves[0]
+    affected = manifest.affected_objects[0]
+    return {
+        "sourceFileName": Path(move.to_relative_path).name,
+        "from": move.from_relative_path,
+        "to": move.to_relative_path,
+        "objectPath": affected.object_path,
+        "changelist": manifest.changelist,
+        "status": manifest.status,
+        "manifest": manifest_path.as_posix(),
+    }
 
 
 def _mark_perforce_skipped(readiness: PilotReadiness) -> PilotReadiness:
