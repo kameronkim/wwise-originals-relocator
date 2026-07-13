@@ -49,8 +49,11 @@ jobs:
         run: |
           $env:WWISE_RELOCATOR_SMOKE_TEST = "1"
           $env:WWISE_RELOCATOR_SMOKE_REPORT = Join-Path $env:RUNNER_TEMP "portable-smoke.txt"
-          & "./dist/WwiseOriginalsRelocator/WwiseOriginalsRelocator.exe"
-          $SmokeExitCode = $LASTEXITCODE
+          $SmokeProcess = Start-Process `
+            -FilePath "./dist/WwiseOriginalsRelocator/WwiseOriginalsRelocator.exe" `
+            -Wait `
+            -PassThru
+          $SmokeExitCode = $SmokeProcess.ExitCode
           if (Test-Path $env:WWISE_RELOCATOR_SMOKE_REPORT) {
             Get-Content $env:WWISE_RELOCATOR_SMOKE_REPORT
           }
