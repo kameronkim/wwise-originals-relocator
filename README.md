@@ -54,6 +54,9 @@ an app restart. The operator can then hand the change off to P4V. The GUI keeps
 rollback available while the related files remain opened and unlocks the next
 operation only after P4V is closed out and the resulting filesystem, WWU, and
 live Wwise state are consistent. Submission remains a separate P4V action.
+The GUI also provides a read-only recent-operation history for the selected
+project, including completed, rolled-back, handed-off, and failed manifests
+with their report locations.
 
 When Perforce is not available, the GUI's explicit local test mode can still
 exercise Wwise/WAAPI scanning, local path validation, planning, and report

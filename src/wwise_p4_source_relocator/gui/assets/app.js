@@ -6,6 +6,16 @@ const state = {
   plan: null,
   selectedItem: null,
   activeOperation: null,
+  operationHistory: null,
+};
+
+const operationStatusLabels = {
+  prepared: '적용 준비 중',
+  applied: '반영 확인 필요',
+  'handed-off': 'P4V 마감 대기',
+  completed: '완료',
+  'rolled-back': 'Rollback 완료',
+  failed: '복구 필요',
 };
 
 const checkLabels = {
@@ -339,6 +349,91 @@ function renderActiveOperation(operation) {
   updateOfflineModePresentation();
 }
 
+function renderOperationHistory(history = {}) {
+  state.operationHistory = history;
+  const entries = history.entries || [];
+  const list = element('history-list');
+  const empty = element('history-empty');
+  list.replaceChildren();
+
+  for (const operation of entries) {
+    const item = document.createElement('article');
+    item.className = 'history-item';
+
+    const primary = document.createElement('div');
+    primary.className = 'history-primary';
+    const createdAt = document.createElement('small');
+    createdAt.textContent = formatOperationDate(operation.createdAt);
+    const fileName = document.createElement('strong');
+    fileName.textContent = operation.sourceFileName || '알 수 없는 파일';
+    const move = document.createElement('p');
+    move.textContent = `${operation.from || '—'} → ${operation.to || '—'}`;
+    primary.append(createdAt, fileName, move);
+
+    const status = document.createElement('span');
+    status.className = `history-status ${operation.status || ''}`;
+    status.textContent = operationStatusLabels[operation.status] || operation.status || '상태 확인 필요';
+
+    const details = document.createElement('div');
+    details.className = 'history-details';
+    const changelist = document.createElement('span');
+    changelist.textContent = operation.changelist
+      ? `Changelist ${operation.changelist}`
+      : '기본 changelist';
+    const validation = document.createElement('span');
+    validation.textContent = operation.validationRecorded
+      ? '검증 보고서 있음'
+      : '검증 보고서 없음';
+    details.append(changelist, validation);
+
+    const reportDetails = document.createElement('details');
+    const reportSummary = document.createElement('summary');
+    reportSummary.textContent = '보고서 위치';
+    const reportPath = document.createElement('p');
+    reportPath.textContent = operation.validationReport
+      ? `작업 폴더: ${operation.reportDirectory}\n검증 보고서: ${operation.validationReport}`
+      : `작업 폴더: ${operation.reportDirectory}`;
+    reportDetails.append(reportSummary, reportPath);
+    details.append(reportDetails);
+
+    item.append(primary, status, details);
+    list.append(item);
+  }
+
+  const hasProject = Boolean(element('project-root').value.trim());
+  empty.querySelector('p').textContent = hasProject
+    ? '이 프로젝트에서 만든 단일 파일 작업 기록이 없습니다.'
+    : '프로젝트를 선택하면 이 앱에서 만든 작업 기록을 확인할 수 있습니다.';
+  empty.hidden = entries.length > 0;
+  list.hidden = entries.length === 0;
+
+  const warning = element('history-warning');
+  const unreadableCount = history.unreadableCount || 0;
+  warning.textContent = unreadableCount
+    ? `reports 폴더에서 읽지 못한 작업 기록 ${unreadableCount}개가 있습니다. 운영 담당자에게 전달하세요.`
+    : '';
+  warning.hidden = unreadableCount === 0;
+
+  const root = element('history-root');
+  root.textContent = history.reportRoot
+    ? `전체 작업 기록 (${history.totalCount || 0}개): ${history.reportRoot}`
+    : '';
+  root.hidden = !history.reportRoot;
+}
+
+function formatOperationDate(value) {
+  if (!value) return '시간 정보 없음';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function renderApplyValidation(result) {
   const validation = result.validation || {valid: false, issues: []};
   const panel = element('apply-validation-result');
@@ -421,6 +516,7 @@ function setBusy(busy, message = '준비됨') {
     || Boolean(state.activeOperation);
   element('choose-project').disabled = busy || !state.bridgeReady || Boolean(state.activeOperation);
   element('choose-p4').disabled = busy || !state.bridgeReady || element('offline-test-mode').checked || Boolean(state.activeOperation);
+  element('refresh-history').disabled = busy || !state.bridgeReady;
   updateApplyButtons();
 }
 
@@ -498,6 +594,7 @@ async function initialize() {
     applySettings(initial.settings || {});
     renderSystem(initial.system || {});
     if (initial.activeOperation) renderActiveOperation(initial.activeOperation);
+    renderOperationHistory(initial.operationHistory || {});
     if ((initial.activeOperationCount || 0) > 1) {
       showError('복구가 필요한 manifest가 여러 개 있습니다. 로그와 reports 폴더를 운영 담당자에게 전달하세요.');
     }
@@ -516,6 +613,7 @@ async function chooseProject() {
       updateProjectState();
       resetResults();
       setStep('project', 'done');
+      await refreshOperationHistory({reportErrors: false});
     }
   } catch (error) {
     showError(error.message);
@@ -587,11 +685,13 @@ async function runApply() {
     );
     if (!result.applied) {
       if (result.activeOperation) renderActiveOperation(result.activeOperation);
+      await refreshOperationHistory({reportErrors: false});
       setBusy(false);
       showError(result.errorMessage || '파일 적용을 완료하지 못했습니다.');
       return;
     }
     renderActiveOperation(result.activeOperation);
+    await refreshOperationHistory({reportErrors: false});
     setBusy(false, '한 파일을 적용했습니다. Wwise에서 외부 변경을 다시 불러오세요');
   } catch (error) {
     setBusy(false);
@@ -616,12 +716,14 @@ async function runRollback() {
     );
     if (!result.rolledBack) {
       renderActiveOperation(result.activeOperation || operation);
+      await refreshOperationHistory({reportErrors: false});
       setBusy(false);
       showError('Rollback을 완료하지 못했습니다. 보고서와 로그를 확인하세요.');
       return;
     }
     renderActiveOperation(null);
     resetResults();
+    await refreshOperationHistory({reportErrors: false});
     setBusy(false, 'Rollback을 완료했습니다. Wwise에서 외부 변경을 다시 불러오세요');
   } catch (error) {
     setBusy(false);
@@ -638,6 +740,7 @@ async function runValidateApply() {
     const result = await invoke('run_validate_apply', settingsFromForm());
     renderActiveOperation(result.activeOperation || operation);
     renderApplyValidation(result);
+    await refreshOperationHistory({reportErrors: false});
     setBusy(false, result.valid
       ? 'Wwise와 Perforce 적용 상태를 확인했습니다'
       : '적용 결과에 확인할 항목이 있습니다');
@@ -665,10 +768,12 @@ async function runHandoffApply() {
     if (!result.handedOff) {
       renderActiveOperation(result.activeOperation || operation);
       renderApplyValidation(result);
+      await refreshOperationHistory({reportErrors: false});
       setBusy(false, '인계 전 검증에서 확인할 항목이 있습니다');
       return;
     }
     renderActiveOperation(result.activeOperation);
+    await refreshOperationHistory({reportErrors: false});
     setBusy(false, 'P4V 검토 단계로 인계했습니다. 앱은 submit하지 않습니다');
   } catch (error) {
     setBusy(false);
@@ -686,6 +791,7 @@ async function runCheckHandoff() {
     if (!result.completed) {
       renderActiveOperation(result.activeOperation || operation);
       if (result.validation) renderApplyValidation(result);
+      await refreshOperationHistory({reportErrors: false});
       setBusy(false, result.pendingPathCount
         ? `P4V에 관련 파일 ${result.pendingPathCount}개가 아직 열려 있습니다`
         : 'Wwise 반영 상태에 확인할 항목이 있습니다');
@@ -693,6 +799,7 @@ async function runCheckHandoff() {
     }
     renderActiveOperation(null);
     resetResults();
+    await refreshOperationHistory({reportErrors: false});
     element('apply-state').textContent = result.finalState === 'rolled-back'
       ? '외부 복구 확인'
       : '작업 완료';
@@ -705,6 +812,25 @@ async function runCheckHandoff() {
     setBusy(false);
     showError(error.message);
   }
+}
+
+async function refreshOperationHistory({reportErrors = true} = {}) {
+  if (!state.bridgeReady) return false;
+  try {
+    const history = await invoke('get_operation_history', settingsFromForm());
+    renderOperationHistory(history);
+    return true;
+  } catch (error) {
+    if (reportErrors) showError(error.message);
+    return false;
+  }
+}
+
+async function runRefreshHistory() {
+  clearError();
+  setBusy(true, '최근 작업 기록을 확인하고 있습니다…');
+  const refreshed = await refreshOperationHistory();
+  setBusy(false, refreshed ? '최근 작업 기록을 새로고침했습니다' : '작업 기록을 읽지 못했습니다');
 }
 
 function changeOfflineMode() {
@@ -800,6 +926,34 @@ function loadPreview() {
     validation: {valid: true, issues: []},
     reports: {validation: 'data/reports/validate-apply/apply-validation.md'},
   });
+  renderOperationHistory({
+    entries: [
+      {
+        createdAt: '2026-07-14T10:30:00+09:00',
+        sourceFileName: 'CH04_S102_WT_001.wav',
+        from: 'Originals/Voices/English(US)/Scenario/CH04/CH04_S102_WT_001.wav',
+        to: 'Originals/Voices/English(US)/Script/CH04/CH04_S102_WT_001.wav',
+        changelist: '123456',
+        status: 'handed-off',
+        validationRecorded: true,
+        validationReport: 'data/reports/validate-apply/apply-validation.md',
+        reportDirectory: 'data/reports/20260714T013000.000000Z-apply',
+      },
+      {
+        createdAt: '2026-07-13T16:20:00+09:00',
+        sourceFileName: 'CH04_CUT_010.wav',
+        from: 'Originals/Voices/English(US)/Cutscene/CH04/CH04_CUT_010.wav',
+        to: 'Originals/Voices/English(US)/Script/CH04/CH04_CUT_010.wav',
+        changelist: '123455',
+        status: 'rolled-back',
+        validationRecorded: false,
+        reportDirectory: 'data/reports/20260713T072000.000000Z-apply',
+      },
+    ],
+    totalCount: 2,
+    unreadableCount: 0,
+    reportRoot: 'data/reports',
+  });
   setBusy(false, '브라우저 미리보기');
 }
 
@@ -812,6 +966,7 @@ element('run-validate-apply').addEventListener('click', runValidateApply);
 element('run-handoff-apply').addEventListener('click', runHandoffApply);
 element('run-check-handoff').addEventListener('click', runCheckHandoff);
 element('run-rollback').addEventListener('click', runRollback);
+element('refresh-history').addEventListener('click', runRefreshHistory);
 element('project-root').addEventListener('input', updateProjectState);
 element('offline-test-mode').addEventListener('change', changeOfflineMode);
 window.addEventListener('pywebviewready', initialize, {once: true});

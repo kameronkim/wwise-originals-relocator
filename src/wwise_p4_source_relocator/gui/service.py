@@ -145,6 +145,7 @@ class PortableGuiService:
             settings["p4Executable"] = detected_p4
         console = find_wwise_console()
         active_operations = self._active_manifests_for_settings(settings)
+        operation_history = self._operation_history_for_settings(settings)
         return {
             "settings": settings,
             "system": {
@@ -170,7 +171,15 @@ class PortableGuiService:
                 else None
             ),
             "activeOperationCount": len(active_operations),
+            "operationHistory": operation_history,
         }
+
+    def get_operation_history(
+        self, values: Mapping[str, object]
+    ) -> dict[str, object]:
+        settings = self.store.load()
+        settings.update(_normalize_settings(values))
+        return self._operation_history_for_settings(settings)
 
     def update_settings(self, values: Mapping[str, object]) -> dict[str, object]:
         self._clear_planned_state()
@@ -695,6 +704,67 @@ class PortableGuiService:
             return []
         return self._active_manifests(Path(raw).expanduser().resolve())
 
+    def _operation_history_for_settings(
+        self, settings: Mapping[str, object], *, limit: int = 20
+    ) -> dict[str, object]:
+        report_root = self.store.data_root / "reports"
+        raw_project_root = settings.get("projectRoot")
+        if not isinstance(raw_project_root, str) or not raw_project_root.strip():
+            return {
+                "entries": [],
+                "totalCount": 0,
+                "unreadableCount": 0,
+                "reportRoot": report_root.as_posix(),
+            }
+
+        project_root = Path(raw_project_root).expanduser().resolve()
+        entries: list[dict[str, object]] = []
+        unreadable_count = 0
+        for manifest_path in report_root.glob("*-apply/rollback-manifest.json"):
+            try:
+                manifest = read_rollback_manifest(manifest_path)
+            except (OSError, ValueError, json.JSONDecodeError):
+                unreadable_count += 1
+                continue
+            if manifest.project_root.resolve() != project_root:
+                continue
+            if (
+                len(manifest.moves) != 1
+                or len(manifest.patched_files) != 1
+                or len(manifest.affected_objects) != 1
+            ):
+                unreadable_count += 1
+                continue
+
+            resolved_manifest_path = manifest_path.resolve()
+            verification = _read_apply_verification(resolved_manifest_path)
+            validation_report = (
+                verification.get("validationReport")
+                if verification is not None
+                and isinstance(verification.get("validationReport"), str)
+                else None
+            )
+            entries.append(
+                {
+                    **_manifest_summary(resolved_manifest_path, manifest),
+                    "createdAt": manifest.created_at,
+                    "validationRecorded": verification is not None,
+                    "validationReport": validation_report,
+                    "reportDirectory": resolved_manifest_path.parent.as_posix(),
+                }
+            )
+
+        entries.sort(
+            key=lambda entry: (str(entry["createdAt"]), str(entry["manifest"])),
+            reverse=True,
+        )
+        return {
+            "entries": entries[:limit],
+            "totalCount": len(entries),
+            "unreadableCount": unreadable_count,
+            "reportRoot": report_root.as_posix(),
+        }
+
     def _clear_planned_state(self) -> None:
         self._planned_plan = None
         self._planned_validation = None
@@ -842,18 +912,27 @@ def _write_apply_verification(
 
 
 def _has_valid_apply_verification(manifest_path: Path) -> bool:
+    verification = _read_apply_verification(manifest_path)
+    return (
+        verification is not None
+        and verification.get("manifest") == manifest_path.as_posix()
+        and verification.get("manifestSha256")
+        == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    )
+
+
+def _read_apply_verification(manifest_path: Path) -> dict[str, object] | None:
     try:
         verification = json.loads(
             _verification_path(manifest_path).read_text(encoding="utf-8")
         )
     except (FileNotFoundError, OSError, json.JSONDecodeError):
-        return False
-    return (
-        isinstance(verification, dict)
-        and verification.get("manifest") == manifest_path.as_posix()
-        and verification.get("manifestSha256")
-        == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-    )
+        return None
+    if not isinstance(verification, dict):
+        return None
+    if verification.get("manifest") != manifest_path.as_posix():
+        return None
+    return verification
 
 
 def _manifest_operation_paths(

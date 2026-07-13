@@ -71,6 +71,11 @@ class GuiApi:
     def save_settings(self, values: Mapping[str, object]) -> dict[str, object]:
         return self._invoke(self.service.update_settings, values)
 
+    def get_operation_history(
+        self, values: Mapping[str, object]
+    ) -> dict[str, object]:
+        return self._invoke(self.service.get_operation_history, values)
+
     def run_doctor(self, values: Mapping[str, object]) -> dict[str, object]:
         return self._invoke_exclusive(self.service.run_doctor, values)
 

@@ -1,4 +1,5 @@
 import hashlib
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -237,6 +238,76 @@ class PortableGuiServiceTests(unittest.TestCase):
                 state["capabilities"],
             )
             self.assertEqual("0.1.0", state["system"]["appVersion"])
+            self.assertEqual([], state["operationHistory"]["entries"])
+
+    def test_operation_history_is_sorted_and_filtered_to_selected_project(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_root = root / "data"
+            project_root = root / "project"
+            other_project = root / "other-project"
+            project_root.mkdir()
+            other_project.mkdir()
+
+            first_path = write_handed_off_manifest(
+                data_root,
+                project_root,
+                final_state="applied",
+            )
+            first = read_rollback_manifest(first_path)
+            first_document = first.to_dict()
+            first_document["createdAt"] = "2026-07-13T00:00:00+00:00"
+            first_document["status"] = "rolled-back"
+            write_json_document(RollbackManifest.from_dict(first_document), first_path)
+
+            second_document = first.to_dict()
+            second_document["createdAt"] = "2026-07-14T00:00:00+00:00"
+            second_document["status"] = "completed"
+            second_path = (
+                data_root
+                / "reports/20260714T000000.000000Z-apply/rollback-manifest.json"
+            )
+            write_json_document(RollbackManifest.from_dict(second_document), second_path)
+            second_path.with_name("apply-verification.json").write_text(
+                json.dumps({
+                    "manifest": second_path.resolve().as_posix(),
+                    "validationReport": "/reports/validation.md",
+                }),
+                encoding="utf-8",
+            )
+
+            other_document = first.to_dict()
+            other_document["projectRoot"] = other_project.as_posix()
+            other_path = (
+                data_root
+                / "reports/20260715T000000.000000Z-apply/rollback-manifest.json"
+            )
+            write_json_document(RollbackManifest.from_dict(other_document), other_path)
+            corrupt_path = (
+                data_root
+                / "reports/20260716T000000.000000Z-apply/rollback-manifest.json"
+            )
+            corrupt_path.parent.mkdir(parents=True)
+            corrupt_path.write_text("not json", encoding="utf-8")
+
+            service = self.make_service(data_root)
+            history = service.get_operation_history(self.settings(project_root))
+
+            self.assertEqual(2, history["totalCount"])
+            self.assertEqual(1, history["unreadableCount"])
+            self.assertEqual(
+                ["completed", "rolled-back"],
+                [entry["status"] for entry in history["entries"]],
+            )
+            self.assertTrue(history["entries"][0]["validationRecorded"])
+            self.assertEqual(
+                "/reports/validation.md",
+                history["entries"][0]["validationReport"],
+            )
+            self.assertEqual(
+                (data_root / "reports").resolve().as_posix(),
+                history["reportRoot"],
+            )
 
     def test_gui_applies_one_planned_file_and_recovers_it_from_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
