@@ -15,12 +15,18 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 waapi = ["waapi-client"]
+gui = ["pywebview>=6.2,<7", "waapi-client"]
+portable = ["pywebview>=6.2,<7", "waapi-client", "pyinstaller>=6,<7"]
 
 [project.scripts]
 wwise-p4-source-relocator = "wwise_p4_source_relocator.cli:main"
+wwise-p4-source-relocator-gui = "wwise_p4_source_relocator.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"wwise_p4_source_relocator.gui" = ["assets/*.html", "assets/*.css", "assets/*.js"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

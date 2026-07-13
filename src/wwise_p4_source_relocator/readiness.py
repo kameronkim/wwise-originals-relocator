@@ -44,6 +44,7 @@ class PilotReadiness:
 def inspect_pilot_readiness(
     project_root: str | Path,
     *,
+    p4_executable: str = "p4",
     p4_available: bool | None = None,
     p4_workspace: bool | None = None,
     waapi_client_available: bool | None = None,
@@ -107,7 +108,11 @@ def inspect_pilot_readiness(
         )
     )
 
-    detected_p4 = shutil.which("p4") is not None if p4_available is None else p4_available
+    detected_p4 = (
+        _executable_is_available(p4_executable)
+        if p4_available is None
+        else p4_available
+    )
     checks.append(
         _check(
             "p4-cli",
@@ -116,7 +121,11 @@ def inspect_pilot_readiness(
         )
     )
     if p4_workspace is None:
-        in_workspace = _p4_contains_project(root) if detected_p4 and root_exists else False
+        in_workspace = (
+            _p4_contains_project(root, executable=p4_executable)
+            if detected_p4 and root_exists
+            else False
+        )
     else:
         in_workspace = p4_workspace
     checks.append(
@@ -183,11 +192,11 @@ def _check(name: str, passed: bool, message: str) -> ReadinessCheck:
     return ReadinessCheck(name, "pass" if passed else "fail", message)
 
 
-def _p4_contains_project(project_root: Path) -> bool:
+def _p4_contains_project(project_root: Path, *, executable: str = "p4") -> bool:
     project_file = next(project_root.glob("*.wproj"), project_root)
     try:
         result = subprocess.run(
-            ("p4", "where", str(project_file)),
+            (executable, "where", str(project_file)),
             capture_output=True,
             text=True,
             check=False,
@@ -195,6 +204,13 @@ def _p4_contains_project(project_root: Path) -> bool:
     except OSError:
         return False
     return result.returncode == 0 and "not in client view" not in result.stdout
+
+
+def _executable_is_available(executable: str) -> bool:
+    candidate = Path(executable).expanduser()
+    if candidate.parent != Path("."):
+        return candidate.is_file()
+    return shutil.which(executable) is not None
 
 
 def _port_is_reachable(host: str, port: int) -> bool:

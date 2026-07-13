@@ -29,6 +29,23 @@ class PilotReadinessTests(unittest.TestCase):
 
             self.assertEqual(str(project_file), run.call_args.args[0][-1])
 
+    def test_workspace_probe_uses_the_configured_p4_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            (project_root / "Pilot.wproj").write_text(
+                "<WwiseDocument/>", encoding="utf-8"
+            )
+
+            with patch("wwise_p4_source_relocator.readiness.subprocess.run") as run:
+                run.return_value.returncode = 0
+                run.return_value.stdout = "mapped"
+
+                self.assertTrue(
+                    _p4_contains_project(project_root, executable="/tools/p4")
+                )
+
+            self.assertEqual("/tools/p4", run.call_args.args[0][0])
+
     def test_ready_project_passes_all_checks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project_root = Path(directory) / "WwiseProject"
