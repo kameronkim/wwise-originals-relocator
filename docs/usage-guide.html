@@ -387,7 +387,7 @@
 
   <div class="page-shell">
     <header class="hero">
-      <p class="eyebrow">Operations Guide · v0.1</p>
+      <p class="eyebrow">Operations Guide · v0.2</p>
       <h1>테스트 및 사용 가이드</h1>
       <p class="hero-copy">
         Wwise Originals의 WAV를 Perforce 이력을 보존하면서 옮기고, WWU 참조·Wwise 객체 GUID·롤백 가능성을 단계별로 검증하는 실무 절차입니다.
@@ -397,6 +397,7 @@
         <span class="tag">실제 p4 move</span>
         <span class="tag">WAAPI 검증</span>
         <span class="tag">Manifest 롤백</span>
+        <span class="tag">macOS · Windows</span>
       </div>
     </header>
 
@@ -409,11 +410,12 @@
           <li><a href="#readonly">3. 읽기 전용 점검</a></li>
           <li><a href="#pilot-project">4. Wwise 테스트 프로젝트</a></li>
           <li><a href="#perforce">5. 로컬 Perforce</a></li>
-          <li><a href="#live-flow">6. 통합 테스트 절차</a></li>
-          <li><a href="#evidence">7. 성공 판정 기준</a></li>
-          <li><a href="#troubleshooting">8. 문제 해결</a></li>
-          <li><a href="#production">9. 실제 프로젝트 적용</a></li>
-          <li><a href="#reference">10. 명령어 요약</a></li>
+          <li><a href="#live-flow">6. macOS 통합 테스트</a></li>
+          <li><a href="#windows-flow">7. Windows 통합 테스트</a></li>
+          <li><a href="#evidence">8. 성공 판정 기준</a></li>
+          <li><a href="#troubleshooting">9. 문제 해결</a></li>
+          <li><a href="#production">10. 실제 프로젝트 적용</a></li>
+          <li><a href="#reference">11. 명령어 요약</a></li>
         </ol>
       </nav>
 
@@ -460,25 +462,42 @@
           <p>저장소 루트에서 Python 3.11 이상을 사용합니다. WAAPI 기능까지 포함하려면 프로젝트 전용 가상환경에 optional dependency를 설치하세요.</p>
 
           <div class="code-block">
-            <div class="code-label">가상환경 및 개발 의존성 설치</div>
+            <div class="code-label">macOS / Linux · 가상환경 및 개발 의존성</div>
             <button class="copy-button" type="button">복사</button>
             <pre><code>python3 -m venv .venv
 .venv/bin/python -m pip install -e ".[dev,waapi]"</code></pre>
           </div>
 
+          <div class="code-block">
+            <div class="code-label">Windows PowerShell · 가상환경 및 개발 의존성</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>py -3.11 -m venv .venv
+&amp; .\.venv\Scripts\python.exe -m pip install -e ".[dev,waapi]"</code></pre>
+          </div>
+
           <h3>자동화 테스트</h3>
           <div class="code-block">
-            <div class="code-label">전체 단위 테스트</div>
+            <div class="code-label">macOS / Linux · 전체 단위 테스트</div>
             <button class="copy-button" type="button">복사</button>
             <pre><code>.venv/bin/python -m pytest</code></pre>
+          </div>
+          <div class="code-block">
+            <div class="code-label">Windows PowerShell · 전체 단위 테스트</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>&amp; .\.venv\Scripts\python.exe -m pytest</code></pre>
           </div>
           <p><span class="status-ok">성공:</span> 모든 테스트가 통과하고 종료 코드가 <code>0</code>입니다. 이 테스트는 parser, planner, preflight, apply/rollback, P4 오류 판별, WAAPI reader, pilot project 생성을 다룹니다.</p>
 
           <h3>CLI가 설치되었는지 확인</h3>
           <div class="code-block">
-            <div class="code-label">도움말</div>
+            <div class="code-label">macOS / Linux · 도움말</div>
             <button class="copy-button" type="button">복사</button>
             <pre><code>.venv/bin/wwise-p4-source-relocator --help</code></pre>
+          </div>
+          <div class="code-block">
+            <div class="code-label">Windows PowerShell · 도움말</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>&amp; .\.venv\Scripts\python.exe -m wwise_p4_source_relocator --help</code></pre>
           </div>
           <a class="back" href="#top">맨 위로 ↑</a>
         </section>
@@ -489,7 +508,7 @@
           <p class="lede">Wwise나 Perforce 없이도 포함된 fixture WWU를 파싱하고, 변경 없는 inspection plan을 만들 수 있습니다.</p>
 
           <div class="code-block">
-            <div class="code-label">Fixture WWU 검사</div>
+            <div class="code-label">macOS / Linux · Fixture WWU 검사</div>
             <button class="copy-button" type="button">복사</button>
             <pre><code>mkdir -p reports
 
@@ -526,7 +545,7 @@
           <p><code>bootstrap-project</code>는 비어 있는 경로에만 새 Wwise 프로젝트를 생성합니다. 기존 <code>.wproj</code>는 건드리지 않습니다.</p>
 
           <div class="code-block">
-            <div class="code-label">테스트 프로젝트 생성</div>
+            <div class="code-label">macOS · 테스트 프로젝트 생성</div>
             <button class="copy-button" type="button">복사</button>
             <pre><code>export PILOT_ROOT=/private/tmp/wwise-relocator-p4/workspace/WwiseRelocatorPilot
 
@@ -550,7 +569,7 @@
 
           <div class="callout warning">
             <strong>대상 경로 보호</strong>
-            <p>destination이 비어 있지 않으면 bootstrap이 거부합니다. 테스트를 다시 만들 때는 새 디렉터리 이름을 사용하세요.</p>
+            <p>destination이 비어 있지 않으면 bootstrap이 거부합니다. 테스트를 다시 만들 때는 새 디렉터리 이름을 사용하세요. Windows 명령은 <a href="#windows-flow">Windows 통합 테스트</a>의 5번 절차를 따릅니다.</p>
           </div>
           <a class="back" href="#top">맨 위로 ↑</a>
         </section>
@@ -560,9 +579,14 @@
           <h2>공용 Perforce가 없을 때</h2>
           <p class="lede">loopback에만 바인딩한 일회용 P4 Server로 실제 <code>p4 edit</code>, <code>p4 move</code>, pending changelist, rollback을 검증할 수 있습니다.</p>
 
-          <h3>환경 변수</h3>
+          <div class="callout">
+            <strong>플랫폼 선택</strong>
+            <p>이 절의 shell 예시는 macOS 기준입니다. Windows에서는 <a href="#windows-flow">Windows 통합 테스트</a>의 PowerShell server/client 절차를 사용하세요.</p>
+          </div>
+
+          <h3>macOS 환경 변수</h3>
           <div class="code-block">
-            <div class="code-label">로컬 pilot 환경</div>
+            <div class="code-label">macOS · 로컬 pilot 환경</div>
             <button class="copy-button" type="button">복사</button>
             <pre><code>export PATH="$PWD/.tools/perforce:$PATH"
 export P4PORT=127.0.0.1:16661
@@ -573,7 +597,7 @@ export PYTHONPATH=src</code></pre>
 
           <h3>서버 시작</h3>
           <div class="code-block">
-            <div class="code-label">별도 터미널에서 실행</div>
+            <div class="code-label">macOS · 별도 터미널에서 실행</div>
             <button class="copy-button" type="button">복사</button>
             <pre><code>.tools/perforce/p4d \
   -r /tmp/wwise-relocator-p4/server \
@@ -612,8 +636,8 @@ export PYTHONPATH=src</code></pre>
         </section>
 
         <section id="live-flow">
-          <span class="section-label">End-to-end</span>
-          <h2>Wwise + Perforce 통합 테스트</h2>
+          <span class="section-label">macOS · End-to-end</span>
+          <h2>macOS: Wwise + Perforce 통합 테스트</h2>
           <p>아래 예시는 macOS Wwise 2025.1.8 경로, WAAPI WAMP <code>18080</code>, HTTP <code>18090</code>, pending changelist <code>2</code>를 사용합니다. 설치 경로와 changelist 번호는 현재 환경에 맞게 바꾸세요.</p>
 
           <h3>1. WAAPI server 시작</h3>
@@ -703,6 +727,219 @@ export PYTHONPATH=src</code></pre>
           <a class="back" href="#top">맨 위로 ↑</a>
         </section>
 
+        <section id="windows-flow">
+          <span class="section-label">Windows · PowerShell · End-to-end</span>
+          <h2>Windows: Wwise + Perforce 통합 테스트</h2>
+          <p class="lede">아래 명령은 저장소 루트에서 PowerShell로 실행합니다. Windows에서는 가상환경 실행 파일과 경로 구분자가 다르며, Wwise fixture 생성 시 <code>--platform Windows</code>를 명시합니다.</p>
+
+          <div class="cards">
+            <article class="card">
+              <h3>필수 구성</h3>
+              <p>Python 3.11+, Wwise Authoring/WwiseConsole, Windows용 <code>p4.exe</code>와 <code>p4d.exe</code>, PowerShell이 필요합니다.</p>
+            </article>
+            <article class="card">
+              <h3>권장 작업 위치</h3>
+              <p><code>$env:TEMP\wwise-relocator-p4</code> 아래에 server와 workspace를 격리하면 실제 depot 및 기존 Wwise 프로젝트와 분리할 수 있습니다.</p>
+            </article>
+          </div>
+
+          <h3>1. Python 설치와 읽기 전용 fixture 테스트</h3>
+          <p>가상환경을 activate하지 않고 Python 실행 파일을 직접 호출하므로 PowerShell execution policy를 변경할 필요가 없습니다.</p>
+          <div class="code-block">
+            <div class="code-label">PowerShell · 저장소 루트</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>py -3.11 --version
+py -3.11 -m venv .venv
+&amp; .\.venv\Scripts\python.exe -m pip install -e ".[dev,waapi]"
+&amp; .\.venv\Scripts\python.exe -m pytest
+
+New-Item -ItemType Directory -Force reports | Out-Null
+&amp; .\.venv\Scripts\python.exe -m wwise_p4_source_relocator inspect-wwu `
+  --wwu "tests\fixtures\sample_project\Actor-Mixer Hierarchy\Default Work Unit.wwu" `
+  --project-root tests\fixtures\sample_project `
+  --json-out reports\source-plan.json `
+  --markdown-out reports\source-plan.md</code></pre>
+          </div>
+          <p><code>py -3.11</code>이 발견되지 않으면 Python 3.11 이상을 설치하거나 동일 버전의 <code>python.exe</code> 전체 경로를 사용합니다. 여기까지는 Wwise와 Perforce 없이 실행할 수 있습니다.</p>
+
+          <h3>2. Pilot 경로와 WwiseConsole 설정</h3>
+          <div class="code-block">
+            <div class="code-label">PowerShell · 환경 변수</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>$PilotBase = Join-Path $env:TEMP "wwise-relocator-p4"
+$PilotWorkspace = Join-Path $PilotBase "workspace"
+$PilotRoot = Join-Path $PilotWorkspace "WwiseRelocatorPilot"
+$WwiseConsole = Join-Path ${env:ProgramFiles(x86)} "Audiokinetic\Wwise 2025.1.8.9170\Authoring\x64\Release\bin\WwiseConsole.exe"
+
+$env:P4PORT = "127.0.0.1:16661"
+$env:P4USER = "pilot"
+$env:P4CLIENT = "wwise-relocator-pilot"
+$env:PYTHONPATH = "src"
+$env:Path = "$(Resolve-Path .\.tools\perforce);$env:Path"
+
+Test-Path $WwiseConsole
+p4 -V
+p4d -V</code></pre>
+          </div>
+          <p><code>Test-Path</code>가 <code>False</code>이면 Wwise Launcher에서 설치 위치를 확인해 <code>$WwiseConsole</code>을 실제 <code>WwiseConsole.exe</code> 경로로 바꾸세요. 버전 폴더는 설치된 Wwise와 일치해야 합니다.</p>
+
+          <h3>3. 일회용 P4 Server 준비</h3>
+          <p><code>.tools\perforce</code>에 Windows용 <code>p4.exe</code>와 <code>p4d.exe</code>를 두고 vendor checksum을 검증한 뒤 사용합니다.</p>
+          <div class="code-block">
+            <div class="code-label">PowerShell · 별도 창에서 서버 시작</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>New-Item -ItemType Directory -Force (Join-Path $PilotBase "server") | Out-Null
+
+&amp; .\.tools\perforce\p4d.exe `
+  -r (Join-Path $PilotBase "server") `
+  -p $env:P4PORT `
+  -L (Join-Path $PilotBase "p4d.log") `
+  -J (Join-Path $PilotBase "journal")</code></pre>
+          </div>
+
+          <details>
+            <summary>Windows에서 P4 Server 2026.1 최초 사용자 bootstrap 보기</summary>
+            <div>
+              <p>첫 실행으로 데이터베이스가 만들어지면 Ctrl-C로 서버를 중지하고 아래 설정을 한 번 적용한 뒤 다시 시작합니다. loopback 전용 test server 외에는 사용하지 마세요.</p>
+              <div class="code-block">
+                <div class="code-label">PowerShell · localhost 전용 설정</div>
+                <button class="copy-button" type="button">복사</button>
+                <pre><code>$ServerRoot = Join-Path $PilotBase "server"
+
+&amp; .\.tools\perforce\p4d.exe -r $ServerRoot -cset dm.user.noautocreate=0
+&amp; .\.tools\perforce\p4d.exe -r $ServerRoot -cset dm.user.setinitialpasswd=1
+&amp; .\.tools\perforce\p4d.exe -r $ServerRoot -cset dm.user.resetpassword=0
+&amp; .\.tools\perforce\p4d.exe -r $ServerRoot -cset run.users.authorize=0
+&amp; .\.tools\perforce\p4d.exe -r $ServerRoot -cset dm.user.hideinvalid=0</code></pre>
+              </div>
+              <p>설정 후 3번의 server start 명령을 다시 실행하고, 서버가 떠 있는 상태에서 다음 명령으로 최초 사용자와 ticket을 만듭니다.</p>
+              <div class="code-block">
+                <div class="code-label">PowerShell · 서버 재시작 후 인증</div>
+                <button class="copy-button" type="button">복사</button>
+                <pre><code>&amp; .\.tools\perforce\p4.exe -p $env:P4PORT -u $env:P4USER passwd
+&amp; .\.tools\perforce\p4.exe -p $env:P4PORT -u $env:P4USER login</code></pre>
+              </div>
+            </div>
+          </details>
+
+          <h3>4. Windows P4 client 만들기</h3>
+          <div class="code-block">
+            <div class="code-label">PowerShell · client spec</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>New-Item -ItemType Directory -Force $PilotWorkspace | Out-Null
+
+$ClientSpec = @"
+Client: wwise-relocator-pilot
+Owner: pilot
+Root: $PilotWorkspace
+Options: noallwrite noclobber nocompress unlocked nomodtime normdir
+SubmitOptions: submitunchanged
+LineEnd: local
+View:
+    //depot/wwise-pilot/... //wwise-relocator-pilot/...
+"@
+
+$ClientSpec | p4 client -i
+p4 info
+p4 where "$PilotWorkspace\..."</code></pre>
+          </div>
+          <div class="callout">
+            <strong>Windows client root</strong>
+            <p>macOS의 <code>/tmp</code> canonicalization 문제는 Windows에 없습니다. 대신 <code>Root</code>와 <code>$PilotRoot</code>가 같은 drive의 실제 경로인지, <code>p4 where</code>가 해당 경로를 mapping하는지 확인합니다.</p>
+          </div>
+
+          <h3>5. Windows용 Wwise fixture 생성</h3>
+          <div class="code-block">
+            <div class="code-label">PowerShell · bootstrap-project</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>&amp; .\.venv\Scripts\python.exe -m wwise_p4_source_relocator bootstrap-project `
+  --project-root $PilotRoot `
+  --wwise-console $WwiseConsole `
+  --platform Windows</code></pre>
+          </div>
+          <p>생성 후 <code>p4 reconcile</code>로 fixture를 추가하고 baseline만 submit합니다. 이후 <code>p4 change</code>로 relocation용 numbered pending changelist를 만들고 그 번호를 아래 <code>$PilotChange</code>에 지정하세요.</p>
+          <div class="code-block">
+            <div class="code-label">PowerShell · baseline과 pending changelist</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>Push-Location $PilotWorkspace
+p4 reconcile "$PilotRoot\..."
+p4 submit -d "Add Wwise relocator pilot baseline"
+p4 change
+Pop-Location
+
+$PilotChange = 2</code></pre>
+          </div>
+
+          <h3>6. Windows에서 WAAPI server 시작</h3>
+          <div class="code-block">
+            <div class="code-label">PowerShell · 별도 창에서 계속 실행</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>$ProjectFile = Join-Path $PilotRoot "WwiseRelocatorPilot.wproj"
+
+&amp; $WwiseConsole waapi-server $ProjectFile `
+  --wamp-port 18080 `
+  --http-port 18090 `
+  --allowed-origin localhost,127.0.0.1</code></pre>
+          </div>
+
+          <h3>7. Doctor → scan → plan → preflight</h3>
+          <div class="code-block">
+            <div class="code-label">PowerShell · 읽기 전용 게이트</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>New-Item -ItemType Directory -Force reports | Out-Null
+$Relocator = ".\.venv\Scripts\python.exe"
+
+&amp; $Relocator -m wwise_p4_source_relocator doctor `
+  --project-root $PilotRoot `
+  --waapi-port 18080 `
+  --json-out reports\live-readiness.json `
+  --markdown-out reports\live-readiness.md
+
+&amp; $Relocator -m wwise_p4_source_relocator scan `
+  --project-root $PilotRoot `
+  --object-root "\Containers\Default Work Unit\VO" `
+  --chapter CH04 `
+  --waapi-url ws://127.0.0.1:18080/waapi `
+  --out reports\live-scan.json
+
+&amp; $Relocator -m wwise_p4_source_relocator plan `
+  --scan reports\live-scan.json `
+  --out reports\live-plan.json
+
+&amp; $Relocator -m wwise_p4_source_relocator validate-plan `
+  --plan reports\live-plan.json `
+  --report reports\live-preflight.md</code></pre>
+          </div>
+
+          <h3>8. 한 파일 적용 → Wwise 재시작 → 검증 → 롤백</h3>
+          <div class="code-block">
+            <div class="code-label">PowerShell · single-file pilot</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>&amp; $Relocator -m wwise_p4_source_relocator apply `
+  --plan reports\live-plan.json `
+  --only CH04_S102_WT_001.wav `
+  --changelist $PilotChange `
+  --manifest reports\live-manifest.json
+
+# WAAPI server를 Ctrl-C로 중지하고 6번 명령으로 다시 시작한 뒤 실행
+&amp; $Relocator -m wwise_p4_source_relocator validate-apply `
+  --manifest reports\live-manifest.json `
+  --waapi-url ws://127.0.0.1:18080/waapi `
+  --report reports\live-validation.md
+
+&amp; $Relocator -m wwise_p4_source_relocator rollback `
+  --manifest reports\live-manifest.json
+
+p4 opened</code></pre>
+          </div>
+
+          <div class="callout warning">
+            <strong>Windows 실환경 첫 실행 규칙</strong>
+            <p>현재 저장소의 실제 end-to-end pilot 증거는 macOS에서 확보되었습니다. Windows에서는 먼저 unit test와 <code>doctor</code>를 통과시키고, disposable fixture 한 파일의 apply/validate/rollback을 끝내기 전에는 실제 프로젝트로 확대하지 마세요.</p>
+          </div>
+          <a class="back" href="#top">맨 위로 ↑</a>
+        </section>
+
         <section id="evidence">
           <span class="section-label">Acceptance</span>
           <h2>성공 판정 기준</h2>
@@ -761,7 +998,19 @@ export PYTHONPATH=src</code></pre>
           </details>
           <details>
             <summary>WwiseConsole이 자동으로 발견되지 않음</summary>
-            <div><p><code>bootstrap-project --wwise-console "/absolute/path/to/WwiseConsole.sh"</code>처럼 설치 경로를 명시하세요. 생성할 폴더 이름과 <code>--project-name</code>은 맞추는 것이 안전합니다.</p></div>
+            <div><p>macOS에서는 <code>--wwise-console "/absolute/path/to/WwiseConsole.sh"</code>, Windows에서는 <code>--wwise-console $WwiseConsole</code>처럼 설치 경로를 명시하세요. Windows의 <code>WwiseConsole.exe</code>는 일반적으로 Wwise 설치 폴더의 <code>Authoring\x64\Release\bin</code> 아래에 있습니다. 생성할 폴더 이름과 <code>--project-name</code>은 맞추는 것이 안전합니다.</p></div>
+          </details>
+          <details>
+            <summary>PowerShell에서 <code>py -3.11</code> 또는 가상환경 Python을 찾지 못함</summary>
+            <div><p><code>py --list</code>로 설치 버전을 확인하세요. Python Launcher가 없다면 Python 3.11 이상의 <code>python.exe</code> 전체 경로로 venv를 만들 수 있습니다. 이후 명령은 activate 없이 <code>.\.venv\Scripts\python.exe</code>를 직접 호출합니다.</p></div>
+          </details>
+          <details>
+            <summary>Windows에서 <code>p4d.exe</code>가 실행되지 않거나 16661 port가 열리지 않음</summary>
+            <div><p>Windows용 binary인지 확인하고 <code>Get-FileHash</code>로 vendor checksum을 검증하세요. Windows Defender 또는 조직 보안 정책이 차단했다면 임의 예외를 추가하지 말고 관리자에게 localhost test binary와 port 승인을 요청합니다. <code>Get-NetTCPConnection -LocalPort 16661</code>로 충돌도 확인하세요.</p></div>
+          </details>
+          <details>
+            <summary>PowerShell 명령의 줄 연속이 끊어짐</summary>
+            <div><p>backtick(<code>`</code>) 뒤에는 공백이나 주석이 없어야 합니다. 복사한 여러 줄 명령이 실패하면 한 줄로 합치거나 각 backtick이 줄의 마지막 문자인지 확인하세요. 이 문서의 명령은 <code>cmd.exe</code>가 아니라 PowerShell 기준입니다.</p></div>
           </details>
           <a class="back" href="#top">맨 위로 ↑</a>
         </section>

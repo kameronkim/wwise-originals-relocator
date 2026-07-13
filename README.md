@@ -37,9 +37,9 @@ only to create its isolated test fixture.
 Planning commands remain read-only, and `apply` refuses to run unless `--only`
 selects exactly one safe move candidate.
 
-For a browser-ready Korean walkthrough of installation, fixture tests, the
-disposable Wwise and Perforce pilot, live validation, and rollback, open the
-[testing and usage guide](docs/usage-guide.html).
+For a browser-ready Korean walkthrough of macOS and Windows installation,
+fixture tests, the disposable Wwise and Perforce pilot, live validation, and
+rollback, open the [testing and usage guide](docs/usage-guide.html).
 
 ## Requirements
 
