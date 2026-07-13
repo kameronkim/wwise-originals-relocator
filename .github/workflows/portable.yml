@@ -31,9 +31,9 @@ jobs:
       - name: Build portable ZIP
         shell: pwsh
         run: ./scripts/build-portable.ps1
-      - name: Upload portable ZIP
+      - name: Upload portable app
         uses: actions/upload-artifact@v4
         with:
           name: WwiseOriginalsRelocator-windows-x64
-          path: portable-dist/WwiseOriginalsRelocator-windows-x64.zip
+          path: dist/WwiseOriginalsRelocator/
           if-no-files-found: error
