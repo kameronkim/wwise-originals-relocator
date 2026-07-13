@@ -210,9 +210,12 @@
             <li><strong>Wwise 다시 불러오기</strong><span>External Project Changes 안내에서 affected Work Unit을 다시 불러옵니다.</span></li>
             <li><strong>Wwise 반영 확인</strong><span>버튼을 누르면 WAV 위치, Work Unit 변경 범위, Perforce opened/diff, Wwise GUID·객체 경로·source와 실제 WAV 존재를 한 번에 검사합니다.</span></li>
             <li><strong>P4V 검토</strong><span>자동 검증이 통과한 뒤에도 팀 절차에 따라 WAV move와 Work Unit diff를 최종 검토합니다.</span></li>
-            <li><strong>테스트 후 Rollback</strong><span>이 파일 Rollback을 누르면 manifest에 기록된 WAV와 Work Unit만 원래 상태로 복구합니다.</span></li>
+            <li><strong>P4V로 인계</strong><span>변경을 유지하려면 검증을 다시 통과한 뒤 P4V 단계로 인계합니다. 프로그램은 submit하지 않습니다.</span></li>
+            <li><strong>P4V 마감 상태 확인</strong><span>P4V에서 submit 또는 revert를 마친 뒤 버튼을 누르면 opened 상태와 WAV·Work Unit·Wwise 결과를 확인하고 다음 작업을 허용합니다.</span></li>
+            <li><strong>테스트 후 Rollback</strong><span>P4V 마감 전 이 파일 Rollback을 누르면 manifest에 기록된 WAV와 Work Unit만 원래 상태로 복구합니다.</span></li>
           </ol>
-          <div class="note warning"><strong>프로그램은 submit하지 않습니다</strong><span>최종 제출은 팀의 기존 P4V 검토와 승인 절차를 사용하세요. 적용된 manifest가 남아 있는 동안에는 다른 파일을 추가 적용할 수 없습니다.</span></div>
+          <div class="note"><strong>검증 상태는 다시 실행해도 유지됩니다</strong><span>성공한 검증 증거는 rollback manifest 옆에 저장됩니다. P4V로 인계한 뒤에도 관련 파일이 opened 상태인 동안에는 Rollback을 사용할 수 있습니다.</span></div>
+          <div class="note warning"><strong>프로그램은 submit하지 않습니다</strong><span>최종 제출은 팀의 기존 P4V 검토와 승인 절차를 사용하세요. 현재 작업을 마감하거나 Rollback하기 전에는 다른 파일을 추가 적용할 수 없습니다.</span></div>
         </section>
 
         <section id="data">
@@ -259,6 +262,7 @@
             <li>사전 검증을 통과한 WAV 하나만 <code>p4 move</code>합니다.</li>
             <li>선택한 Wwise 객체 GUID의 source 경로 한 곳만 수정합니다.</li>
             <li>적용 후 로컬 파일, Perforce 상태와 live Wwise 객체를 manifest 기준으로 다시 검증합니다.</li>
+            <li>P4V 인계 후에도 마감이 확인될 때까지 Rollback과 단일 작업 잠금을 유지합니다.</li>
             <li>첫 변경 전에 rollback manifest를 저장합니다.</li>
             <li>Rollback은 manifest에 기록된 WAV와 Work Unit만 복구합니다.</li>
             <li><code>p4 submit</code>은 실행하지 않습니다.</li>

@@ -305,18 +305,32 @@ function renderActiveOperation(operation) {
   element('apply-controls').hidden = true;
   element('apply-empty').hidden = active;
   const validated = operation?.validated === true;
+  const handedOff = operation?.status === 'handed-off';
   element('apply-state').textContent = active
     ? (operation.status === 'failed'
       ? 'Rollback 필요'
-      : (validated ? '검증 완료' : '반영 확인 필요'))
+      : (handedOff ? 'P4V 마감 대기' : (validated ? '인계 가능' : '반영 확인 필요')))
     : '계획 필요';
-  element('apply-state').className = `panel-state ${active ? (validated ? 'ready' : 'warning') : 'neutral'}`;
+  element('apply-state').className = `panel-state ${active ? (validated && !handedOff ? 'ready' : 'warning') : 'neutral'}`;
   if (active) {
     element('active-file').textContent = operation.sourceFileName;
     element('active-move').textContent = `${operation.from} → ${operation.to}`;
     element('apply-report').textContent = `Rollback manifest: ${operation.manifest}`;
     element('apply-report').hidden = false;
     element('run-validate-apply').hidden = operation.status !== 'applied';
+    element('run-handoff-apply').hidden = operation.status !== 'applied' || !validated;
+    element('run-check-handoff').hidden = !handedOff;
+    if (handedOff) {
+      element('active-guide-1').textContent = 'P4V에서 WAV move와 Work Unit diff를 최종 검토합니다.';
+      element('active-guide-2').textContent = '팀 절차에 따라 submit하거나 변경을 revert합니다.';
+      element('active-guide-3').textContent = '마감 뒤 P4V 마감 상태 확인을 눌러 작업 잠금을 해제합니다.';
+    } else {
+      element('active-guide-1').textContent = 'Wwise의 External Project Changes 안내에서 affected Work Unit을 다시 불러옵니다.';
+      element('active-guide-2').textContent = 'Wwise 반영 확인으로 source와 Perforce 상태를 검증합니다.';
+      element('active-guide-3').textContent = validated
+        ? 'P4V로 인계하거나 Rollback으로 원래 상태를 복구합니다.'
+        : '검증이 끝나기 전에는 P4V로 인계할 수 없습니다.';
+    }
     setStep('apply', 'active');
   } else {
     element('apply-report').hidden = true;
@@ -415,6 +429,8 @@ function updateApplyButtons() {
   const applyButton = element('run-apply');
   const rollbackButton = element('run-rollback');
   const validateButton = element('run-validate-apply');
+  const handoffButton = element('run-handoff-apply');
+  const checkHandoffButton = element('run-check-handoff');
   if (applyButton) {
     applyButton.disabled = state.busy
       || !state.bridgeReady
@@ -434,6 +450,19 @@ function updateApplyButtons() {
       || offline
       || !state.activeOperation
       || state.activeOperation.status !== 'applied';
+  }
+  if (handoffButton) {
+    handoffButton.disabled = state.busy
+      || !state.bridgeReady
+      || offline
+      || !state.activeOperation?.validated
+      || state.activeOperation.status !== 'applied';
+  }
+  if (checkHandoffButton) {
+    checkHandoffButton.disabled = state.busy
+      || !state.bridgeReady
+      || offline
+      || state.activeOperation?.status !== 'handed-off';
   }
 }
 
@@ -618,6 +647,66 @@ async function runValidateApply() {
   }
 }
 
+async function runHandoffApply() {
+  const operation = state.activeOperation;
+  if (!operation?.validated || operation.status !== 'applied') return;
+  const accepted = window.confirm(
+    `${operation.sourceFileName}\n\n검증을 다시 실행한 뒤 이 작업을 P4V 검토 단계로 인계합니다.\n앱은 submit하지 않으며, P4V 마감 전까지 Rollback을 사용할 수 있습니다. 계속할까요?`,
+  );
+  if (!accepted) return;
+  clearError();
+  setBusy(true, `${operation.sourceFileName}을 다시 검증하고 P4V로 인계하고 있습니다…`);
+  try {
+    const result = await invoke(
+      'run_handoff_apply',
+      settingsFromForm(),
+      operation.sourceFileName,
+    );
+    if (!result.handedOff) {
+      renderActiveOperation(result.activeOperation || operation);
+      renderApplyValidation(result);
+      setBusy(false, '인계 전 검증에서 확인할 항목이 있습니다');
+      return;
+    }
+    renderActiveOperation(result.activeOperation);
+    setBusy(false, 'P4V 검토 단계로 인계했습니다. 앱은 submit하지 않습니다');
+  } catch (error) {
+    setBusy(false);
+    showError(error.message);
+  }
+}
+
+async function runCheckHandoff() {
+  const operation = state.activeOperation;
+  if (operation?.status !== 'handed-off') return;
+  clearError();
+  setBusy(true, 'P4V의 opened 상태와 Wwise 반영 상태를 확인하고 있습니다…');
+  try {
+    const result = await invoke('run_check_handoff', settingsFromForm());
+    if (!result.completed) {
+      renderActiveOperation(result.activeOperation || operation);
+      if (result.validation) renderApplyValidation(result);
+      setBusy(false, result.pendingPathCount
+        ? `P4V에 관련 파일 ${result.pendingPathCount}개가 아직 열려 있습니다`
+        : 'Wwise 반영 상태에 확인할 항목이 있습니다');
+      return;
+    }
+    renderActiveOperation(null);
+    resetResults();
+    element('apply-state').textContent = result.finalState === 'rolled-back'
+      ? '외부 복구 확인'
+      : '작업 완료';
+    element('apply-state').className = 'panel-state ready';
+    setStep('apply', 'done');
+    setBusy(false, result.finalState === 'rolled-back'
+      ? 'P4V에서 복구된 상태를 확인했습니다. Wwise를 다시 불러오세요'
+      : 'P4V와 Wwise 마감 상태를 확인했습니다');
+  } catch (error) {
+    setBusy(false);
+    showError(error.message);
+  }
+}
+
 function changeOfflineMode() {
   resetResults();
   updateOfflineModePresentation();
@@ -702,8 +791,8 @@ function loadPreview() {
     to: 'Originals/Voices/English(US)/Script/CH04/CH04_S102_WT_001.wav',
     objectPath: '\\Containers\\Default Work Unit\\VO\\Script\\CH04\\CH04_S102_WT_001',
     changelist: '123456',
-    status: 'applied',
-    validated: true,
+    status: 'handed-off',
+    validated: false,
     manifest: 'data/reports/apply/rollback-manifest.json',
   });
   renderApplyValidation({
@@ -720,6 +809,8 @@ element('run-doctor').addEventListener('click', runDoctor);
 element('run-plan').addEventListener('click', runPlan);
 element('run-apply').addEventListener('click', runApply);
 element('run-validate-apply').addEventListener('click', runValidateApply);
+element('run-handoff-apply').addEventListener('click', runHandoffApply);
+element('run-check-handoff').addEventListener('click', runCheckHandoff);
 element('run-rollback').addEventListener('click', runRollback);
 element('project-root').addEventListener('input', updateProjectState);
 element('offline-test-mode').addEventListener('change', changeOfflineMode);

@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -22,7 +23,10 @@ from wwise_p4_source_relocator.models import (
     ValidationResult,
 )
 from wwise_p4_source_relocator.readiness import PilotReadiness, ReadinessCheck
-from wwise_p4_source_relocator.report import write_json_document
+from wwise_p4_source_relocator.report import (
+    read_rollback_manifest,
+    write_json_document,
+)
 from wwise_p4_source_relocator.waapi_reader import WaapiError
 
 
@@ -112,6 +116,70 @@ def failed_apply_with_recovery_manifest(plan, **values: object):
         manifest.with_status("failed"), values["manifest_path"]
     )
     raise ApplyError("automatic rollback failed")
+
+
+class FixedOpenedProbe:
+    def __init__(self, opened: bool) -> None:
+        self.opened = opened
+
+    def is_opened(self, path: Path) -> bool:
+        return self.opened
+
+
+def write_handed_off_manifest(
+    data_root: Path,
+    project_root: Path,
+    *,
+    final_state: str,
+) -> Path:
+    source = project_root / "Originals/Scenario/line.wav"
+    target = project_root / "Originals/Script/line.wav"
+    work_unit = project_root / "Actor-Mixer Hierarchy/Default Work Unit.wwu"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    work_unit.parent.mkdir(parents=True, exist_ok=True)
+    original_wwu = b"original work unit"
+    patched_wwu = b"patched work unit"
+    if final_state == "applied":
+        target.write_bytes(b"wave")
+        work_unit.write_bytes(patched_wwu)
+    else:
+        source.write_bytes(b"wave")
+        work_unit.write_bytes(original_wwu)
+    manifest = RollbackManifest(
+        created_at="2026-07-13T00:00:00+00:00",
+        project_root=project_root,
+        changelist="123456",
+        moves=(
+            MoveRecord(
+                "Originals/Scenario/line.wav",
+                "Originals/Script/line.wav",
+            ),
+        ),
+        patched_files=(
+            PatchedFileRecord(
+                relative_path="Actor-Mixer Hierarchy/Default Work Unit.wwu",
+                object_guid="{8886C06E-4664-4CEA-B3F1-8668CCDF3683}",
+                old_xml_path="old.wav",
+                new_xml_path="new.wav",
+                original_sha256=hashlib.sha256(original_wwu).hexdigest(),
+                patched_sha256=hashlib.sha256(patched_wwu).hexdigest(),
+            ),
+        ),
+        affected_objects=(
+            AffectedObjectRecord(
+                object_path=r"\Containers\Default Work Unit\VO\Script\CH04\line",
+                guid="{8886C06E-4664-4CEA-B3F1-8668CCDF3683}",
+                before_source_relative_path="Originals/Scenario/line.wav",
+                after_source_relative_path="Originals/Script/line.wav",
+            ),
+        ),
+        unmanaged_files_to_delete=(),
+        status="handed-off",
+    )
+    manifest_path = data_root / "reports/20260713T000000.000000Z-apply/rollback-manifest.json"
+    write_json_document(manifest, manifest_path)
+    return manifest_path
 
 
 class PortableSettingsStoreTests(unittest.TestCase):
@@ -242,6 +310,87 @@ class PortableGuiServiceTests(unittest.TestCase):
                 calls,
             )
             self.assertTrue(Path(result["reports"]["validation"]).is_file())
+            self.assertTrue(Path(result["reports"]["verification"]).is_file())
+            self.assertTrue(service.initial_state()["activeOperation"]["validated"])
+
+            handed_off = service.run_handoff_apply(
+                settings,
+                "line.wav",
+            )
+
+            self.assertTrue(handed_off["handedOff"])
+            self.assertEqual("handed-off", handed_off["activeOperation"]["status"])
+            self.assertEqual(
+                "handed-off",
+                service.initial_state()["activeOperation"]["status"],
+            )
+
+    def test_gui_keeps_handoff_locked_while_perforce_paths_are_opened(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            data_root = root / "data"
+            write_handed_off_manifest(data_root, project_root, final_state="applied")
+            service = self.make_service(
+                data_root,
+                workspace_probe_factory=lambda _: FixedOpenedProbe(True),
+            )
+            settings = self.settings(project_root)
+
+            result = service.run_check_handoff(settings)
+
+            self.assertFalse(result["completed"])
+            self.assertEqual(3, result["pendingPathCount"])
+            self.assertEqual("handed-off", result["activeOperation"]["status"])
+
+    def test_gui_completes_handoff_after_perforce_and_wwise_are_clean(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            data_root = root / "data"
+            manifest_path = write_handed_off_manifest(
+                data_root,
+                project_root,
+                final_state="applied",
+            )
+            service = self.make_service(
+                data_root,
+                live_validator=lambda *_, **__: ValidationResult(()),
+                workspace_probe_factory=lambda _: FixedOpenedProbe(False),
+            )
+
+            result = service.run_check_handoff(self.settings(project_root))
+
+            self.assertTrue(result["completed"])
+            self.assertEqual("completed", result["finalState"])
+            self.assertEqual(
+                "completed", read_rollback_manifest(manifest_path).status
+            )
+            self.assertIsNone(service.initial_state()["activeOperation"])
+
+    def test_gui_recognizes_an_external_perforce_revert_after_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            data_root = root / "data"
+            manifest_path = write_handed_off_manifest(
+                data_root,
+                project_root,
+                final_state="rolled-back",
+            )
+            service = self.make_service(
+                data_root,
+                workspace_probe_factory=lambda _: FixedOpenedProbe(False),
+            )
+
+            result = service.run_check_handoff(self.settings(project_root))
+
+            self.assertTrue(result["completed"])
+            self.assertEqual("rolled-back", result["finalState"])
+            self.assertTrue(result["requiresWwiseReload"])
+            self.assertEqual(
+                "rolled-back", read_rollback_manifest(manifest_path).status
+            )
 
     def test_gui_combines_post_apply_validation_issues(self) -> None:
         local_issue = ValidationIssue("target-missing", "Target missing")

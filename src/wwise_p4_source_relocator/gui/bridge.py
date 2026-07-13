@@ -110,6 +110,26 @@ class GuiApi:
             values,
         )
 
+    def run_handoff_apply(
+        self,
+        values: Mapping[str, object],
+        confirmation: str,
+    ) -> dict[str, object]:
+        return self._invoke_exclusive(
+            self.service.run_handoff_apply,
+            values,
+            confirmation,
+        )
+
+    def run_check_handoff(
+        self,
+        values: Mapping[str, object],
+    ) -> dict[str, object]:
+        return self._invoke_exclusive(
+            self.service.run_check_handoff,
+            values,
+        )
+
     def _invoke_exclusive(self, function: Any, *args: object) -> dict[str, object]:
         if not self._operation_lock.acquire(blocking=False):
             LOGGER.warning("Rejected concurrent GUI operation: %s", function.__name__)

@@ -182,7 +182,7 @@ tbody tr:hover { background: rgba(131, 183, 212, 0.05); }
 .active-operation ol { margin: 0; padding-left: 1.15rem; color: #cdbd9f; font-size: 0.7rem; }
 .active-operation li + li { margin-top: 3px; }
 .active-actions { display: grid; gap: 8px; min-width: 154px; }
-.validate-apply-button, .rollback-button { min-height: 40px; white-space: nowrap; }
+.validate-apply-button, .handoff-button, .rollback-button { min-height: 40px; white-space: nowrap; }
 .apply-validation-result { margin-top: 12px; padding: 13px 15px; border: 1px solid #5c7280; border-radius: 10px; background: #293b47; color: #bbc9d2; }
 .apply-validation-result.valid { border-color: #557991; background: #263a47; }
 .apply-validation-result.invalid { border-color: #74633e; background: var(--amber-soft); color: #cdbd9f; }

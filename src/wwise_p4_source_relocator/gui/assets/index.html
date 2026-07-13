@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="Wwise Originals Relocator portable desktop interface">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="styles.css?v=6">
+  <link rel="stylesheet" href="styles.css?v=7">
   <title>Wwise Originals Relocator</title>
 </head>
 <body>
@@ -214,12 +214,14 @@
               <p id="active-move">—</p>
             </div>
             <ol>
-              <li>Wwise의 External Project Changes 안내에서 affected Work Unit을 다시 불러옵니다.</li>
-              <li><strong>Wwise 반영 확인</strong>으로 source와 Perforce 상태를 검증합니다.</li>
-              <li>테스트가 끝나면 Rollback으로 원래 상태를 복구합니다.</li>
+              <li id="active-guide-1">Wwise의 External Project Changes 안내에서 affected Work Unit을 다시 불러옵니다.</li>
+              <li id="active-guide-2"><strong>Wwise 반영 확인</strong>으로 source와 Perforce 상태를 검증합니다.</li>
+              <li id="active-guide-3">테스트가 끝나면 Rollback으로 원래 상태를 복구합니다.</li>
             </ol>
             <div class="active-actions">
               <button id="run-validate-apply" class="primary-button validate-apply-button" type="button">Wwise 반영 확인</button>
+              <button id="run-handoff-apply" class="primary-button handoff-button" type="button" hidden>P4V로 인계</button>
+              <button id="run-check-handoff" class="primary-button handoff-button" type="button" hidden>P4V 마감 상태 확인</button>
               <button id="run-rollback" class="secondary-button rollback-button" type="button">이 파일 Rollback</button>
             </div>
           </div>
@@ -240,6 +242,6 @@
       <span id="app-version">v—</span>
     </footer>
   </div>
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>

@@ -49,6 +49,12 @@ Project Changes. It never submits a changelist or installs production
 prerequisites. See the [portable GUI guide](docs/portable-gui.md) and its
 [offline HTML edition](docs/usage-guide.html).
 
+Successful GUI validation is stored beside the rollback manifest so it survives
+an app restart. The operator can then hand the change off to P4V. The GUI keeps
+rollback available while the related files remain opened and unlocks the next
+operation only after P4V is closed out and the resulting filesystem, WWU, and
+live Wwise state are consistent. Submission remains a separate P4V action.
+
 When Perforce is not available, the GUI's explicit local test mode can still
 exercise Wwise/WAAPI scanning, local path validation, planning, and report
 rendering. It skips only Perforce CLI, workspace, and opened-file checks and

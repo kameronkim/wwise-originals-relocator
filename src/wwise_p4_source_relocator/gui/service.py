@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ from ..p4_client import P4Client
 from ..pilot_project import find_wwise_console
 from ..planner import build_relocation_plan
 from ..preflight import P4WorkspaceProbe, validate_relocation_plan
+from ..project_paths import UnsafeProjectPath, resolve_project_path
 from ..readiness import (
     PilotReadiness,
     ReadinessCheck,
@@ -433,6 +435,15 @@ class PortableGuiService:
         report_root = self._new_report_root("validate-apply")
         validation_path = report_root / "apply-validation.md"
         validation_path.write_text(render_validation(result), encoding="utf-8")
+        verification_path = _verification_path(manifest_path)
+        if result.is_valid:
+            _write_apply_verification(
+                verification_path,
+                manifest_path=manifest_path,
+                validation_path=validation_path,
+            )
+        else:
+            verification_path.unlink(missing_ok=True)
         return {
             "valid": result.is_valid,
             "validation": result.to_dict(),
@@ -440,7 +451,157 @@ class PortableGuiService:
                 **_manifest_summary(manifest_path, manifest),
                 "validated": result.is_valid,
             },
-            "reports": {"validation": validation_path.as_posix()},
+            "reports": {
+                "validation": validation_path.as_posix(),
+                "verification": (
+                    verification_path.as_posix() if result.is_valid else None
+                ),
+            },
+        }
+
+    def run_handoff_apply(
+        self,
+        values: Mapping[str, object],
+        confirmation: str,
+    ) -> dict[str, object]:
+        settings = self.store.save(values)
+        project_root = _project_root(settings)
+        if _offline_test_mode(settings):
+            raise GuiServiceError(
+                "Perforce 없는 로컬 테스트에서는 P4V 인계를 실행할 수 없습니다."
+            )
+        active = self._active_manifests(project_root)
+        if len(active) != 1:
+            raise GuiServiceError(
+                "P4V로 인계할 단일 파일 manifest를 정확히 하나 찾을 수 없습니다."
+            )
+        manifest_path, manifest = active[0]
+        if manifest.status != "applied":
+            raise GuiServiceError("현재 작업은 P4V 인계 단계가 아닙니다.")
+        source_file_name = Path(manifest.moves[0].to_relative_path).name
+        if confirmation != source_file_name:
+            raise GuiServiceError("P4V 인계 파일 확인이 일치하지 않습니다.")
+
+        validation = self.run_validate_apply(settings)
+        if not validation["valid"]:
+            return {"handedOff": False, **validation}
+
+        handed_off = manifest.with_status("handed-off")
+        write_json_document(handed_off, manifest_path)
+        validation_report = validation["reports"].get("validation")
+        if isinstance(validation_report, str):
+            _write_apply_verification(
+                _verification_path(manifest_path),
+                manifest_path=manifest_path,
+                validation_path=Path(validation_report),
+            )
+        self._clear_planned_state()
+        return {
+            "handedOff": True,
+            "activeOperation": _manifest_summary(manifest_path, handed_off),
+            "reports": validation["reports"],
+        }
+
+    def run_check_handoff(
+        self,
+        values: Mapping[str, object],
+    ) -> dict[str, object]:
+        settings = self.store.save(values)
+        project_root = _project_root(settings)
+        if _offline_test_mode(settings):
+            raise GuiServiceError(
+                "Perforce 없는 로컬 테스트에서는 P4V 마감을 확인할 수 없습니다."
+            )
+        active = self._active_manifests(project_root)
+        if len(active) != 1:
+            raise GuiServiceError(
+                "마감 상태를 확인할 단일 파일 manifest를 정확히 하나 찾을 수 없습니다."
+            )
+        manifest_path, manifest = active[0]
+        if manifest.status != "handed-off":
+            raise GuiServiceError("먼저 검증 완료 작업을 P4V로 인계해 주세요.")
+
+        try:
+            source, target, work_unit = _manifest_operation_paths(manifest)
+        except UnsafeProjectPath as exc:
+            raise GuiServiceError(str(exc)) from exc
+        probe = self._workspace_probe_factory(_p4_executable(settings))
+        try:
+            opened_paths = [
+                path
+                for path in (source, target, work_unit)
+                if probe.is_opened(path)
+            ]
+        except OSError as exc:
+            raise GuiServiceError(
+                f"Perforce opened 상태를 읽지 못했습니다. 세부 정보: {exc}"
+            ) from exc
+        if opened_paths:
+            return {
+                "completed": False,
+                "pendingPathCount": len(opened_paths),
+                "activeOperation": _manifest_summary(manifest_path, manifest),
+            }
+
+        patched = manifest.patched_files[0]
+        work_unit_hash = (
+            hashlib.sha256(work_unit.read_bytes()).hexdigest()
+            if work_unit.is_file()
+            else None
+        )
+        if (
+            source.is_file()
+            and not target.exists()
+            and work_unit_hash == patched.original_sha256
+        ):
+            rolled_back = manifest.with_status("rolled-back")
+            write_json_document(rolled_back, manifest_path)
+            self._clear_planned_state()
+            return {
+                "completed": True,
+                "finalState": "rolled-back",
+                "requiresWwiseReload": True,
+                "activeOperation": None,
+            }
+        if (
+            source.exists()
+            or not target.is_file()
+            or work_unit_hash != patched.patched_sha256
+        ):
+            raise GuiServiceError(
+                "Perforce opened 상태는 정리되었지만 WAV 또는 Work Unit이 manifest와 "
+                "일치하지 않습니다. P4V 상태와 보고서를 운영 담당자에게 전달해 주세요."
+            )
+
+        try:
+            live = self._live_validator(
+                manifest,
+                url=_required_setting(settings, "waapiUrl"),
+            )
+        except RuntimeError as exc:
+            raise GuiServiceError(
+                "P4V 마감 뒤 Wwise 상태를 읽지 못했습니다. Wwise에서 External "
+                "Project Changes를 다시 불러온 뒤 다시 확인해 주세요. "
+                f"세부 정보: {exc}"
+            ) from exc
+        if not live.is_valid:
+            report_root = self._new_report_root("complete-apply")
+            validation_path = report_root / "completion-validation.md"
+            validation_path.write_text(render_validation(live), encoding="utf-8")
+            return {
+                "completed": False,
+                "validation": live.to_dict(),
+                "activeOperation": _manifest_summary(manifest_path, manifest),
+                "reports": {"validation": validation_path.as_posix()},
+            }
+
+        completed = manifest.with_status("completed")
+        write_json_document(completed, manifest_path)
+        self._clear_planned_state()
+        return {
+            "completed": True,
+            "finalState": "completed",
+            "activeOperation": None,
         }
 
     def run_rollback(
@@ -464,6 +625,25 @@ class PortableGuiService:
         source_file_name = Path(manifest.moves[0].to_relative_path).name
         if confirmation != source_file_name:
             raise GuiServiceError("Rollback 파일 확인이 일치하지 않습니다.")
+        if manifest.status == "handed-off":
+            try:
+                operation_paths = _manifest_operation_paths(manifest)
+            except UnsafeProjectPath as exc:
+                raise GuiServiceError(str(exc)) from exc
+            probe = self._workspace_probe_factory(_p4_executable(settings))
+            try:
+                all_opened = all(
+                    probe.is_opened(path) for path in operation_paths
+                )
+            except OSError as exc:
+                raise GuiServiceError(
+                    f"Perforce opened 상태를 읽지 못했습니다. 세부 정보: {exc}"
+                ) from exc
+            if not all_opened:
+                raise GuiServiceError(
+                    "P4V에서 일부 또는 전체 파일이 이미 마감되었습니다. Rollback을 "
+                    "실행하지 않고 P4V 마감 상태 확인을 먼저 눌러 주세요."
+                )
 
         result = self._rollbacker(
             manifest,
@@ -498,7 +678,7 @@ class PortableGuiService:
             except (OSError, ValueError, json.JSONDecodeError):
                 continue
             if (
-                manifest.status in {"applied", "failed"}
+                manifest.status in {"applied", "handed-off", "failed"}
                 and len(manifest.moves) == 1
                 and len(manifest.patched_files) == 1
                 and len(manifest.affected_objects) == 1
@@ -630,8 +810,63 @@ def _manifest_summary(
         "objectPath": affected.object_path,
         "changelist": manifest.changelist,
         "status": manifest.status,
+        "validated": (
+            manifest.status == "applied"
+            and _has_valid_apply_verification(manifest_path)
+        ),
         "manifest": manifest_path.as_posix(),
     }
+
+
+def _verification_path(manifest_path: Path) -> Path:
+    return manifest_path.with_name("apply-verification.json")
+
+
+def _write_apply_verification(
+    output_path: Path,
+    *,
+    manifest_path: Path,
+    validation_path: Path,
+) -> None:
+    document = {
+        "schemaVersion": 1,
+        "verifiedAt": datetime.now(UTC).isoformat(),
+        "manifest": manifest_path.as_posix(),
+        "manifestSha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        "validationReport": validation_path.as_posix(),
+    }
+    output_path.write_text(
+        json.dumps(document, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _has_valid_apply_verification(manifest_path: Path) -> bool:
+    try:
+        verification = json.loads(
+            _verification_path(manifest_path).read_text(encoding="utf-8")
+        )
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return False
+    return (
+        isinstance(verification, dict)
+        and verification.get("manifest") == manifest_path.as_posix()
+        and verification.get("manifestSha256")
+        == hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    )
+
+
+def _manifest_operation_paths(
+    manifest: RollbackManifest,
+) -> tuple[Path, Path, Path]:
+    root = manifest.project_root.resolve()
+    move = manifest.moves[0]
+    patched = manifest.patched_files[0]
+    return (
+        resolve_project_path(root, move.from_relative_path),
+        resolve_project_path(root, move.to_relative_path),
+        resolve_project_path(root, patched.relative_path),
+    )
 
 
 def _mark_perforce_skipped(readiness: PilotReadiness) -> PilotReadiness:

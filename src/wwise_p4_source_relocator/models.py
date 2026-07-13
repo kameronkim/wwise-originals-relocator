@@ -330,7 +330,14 @@ class AffectedObjectRecord:
         )
 
 
-ManifestStatus = Literal["prepared", "applied", "rolled-back", "failed"]
+ManifestStatus = Literal[
+    "prepared",
+    "applied",
+    "handed-off",
+    "completed",
+    "rolled-back",
+    "failed",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,7 +381,14 @@ class RollbackManifest:
         ):
             raise ValueError("unmanagedFilesToDelete must be a list of strings")
         status = _required_string(value, "status")
-        if status not in {"prepared", "applied", "rolled-back", "failed"}:
+        if status not in {
+            "prepared",
+            "applied",
+            "handed-off",
+            "completed",
+            "rolled-back",
+            "failed",
+        }:
             raise ValueError(f"Unsupported manifest status: {status}")
         return cls(
             created_at=_required_string(value, "createdAt"),
