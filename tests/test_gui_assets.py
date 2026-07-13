@@ -15,8 +15,8 @@ class GuiAssetTests(unittest.TestCase):
     def test_desktop_assets_are_packaged_together(self) -> None:
         index = (ASSET_ROOT / "index.html").read_text(encoding="utf-8")
 
-        self.assertIn('href="styles.css"', index)
-        self.assertIn('src="app.js"', index)
+        self.assertIn('href="styles.css?v=3"', index)
+        self.assertIn('src="app.js?v=3"', index)
         self.assertTrue((ASSET_ROOT / "styles.css").is_file())
         self.assertTrue((ASSET_ROOT / "app.js").is_file())
 
@@ -32,6 +32,9 @@ class GuiAssetTests(unittest.TestCase):
         self.assertIn("확인 내용", index)
         self.assertIn("validation-issues", index)
         self.assertIn("app-version", index)
+        self.assertIn('id="offline-test-mode"', index)
+        self.assertIn("Perforce 없이 로컬 테스트", index)
+        self.assertIn("offlineTestMode", script)
 
 
 if __name__ == "__main__":

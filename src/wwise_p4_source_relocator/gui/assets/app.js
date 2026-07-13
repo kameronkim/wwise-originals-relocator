@@ -2,6 +2,7 @@ const state = {
   bridgeReady: false,
   doctorPassed: false,
   busy: false,
+  system: {},
 };
 
 const checkLabels = {
@@ -74,6 +75,7 @@ function settingsFromForm() {
     chapter: element('chapter').value.trim(),
     waapiUrl: element('waapi-url').value.trim(),
     p4Executable: element('p4-executable').value.trim(),
+    offlineTestMode: element('offline-test-mode').checked,
   };
 }
 
@@ -83,7 +85,9 @@ function applySettings(settings) {
   element('chapter').value = settings.chapter || 'CH04';
   element('waapi-url').value = settings.waapiUrl || 'ws://127.0.0.1:8080/waapi';
   element('p4-executable').value = settings.p4Executable || '';
+  element('offline-test-mode').checked = settings.offlineTestMode === true;
   updateProjectState();
+  updateOfflineModePresentation();
 }
 
 function updateProjectState() {
@@ -94,13 +98,31 @@ function updateProjectState() {
 }
 
 function renderSystem(system) {
+  state.system = {...system};
   element('app-version').textContent = system.appVersion ? `v${system.appVersion}` : 'v—';
   element('platform-value').textContent = system.platform || '—';
-  element('p4-status').textContent = system.p4Detected ? '감지됨' : '찾지 못함';
-  element('p4-detail').textContent = system.p4Executable || '직접 선택할 수 있습니다';
   element('wwise-status').textContent = system.wwiseDetected ? '감지됨' : '연결 확인 필요';
   element('wwise-detail').textContent = system.wwiseConsole || 'Wwise 실행 후 환경 확인';
   element('data-detail').textContent = system.dataRoot || '앱 폴더의 data';
+  updateOfflineModePresentation();
+}
+
+function updateOfflineModePresentation() {
+  const enabled = element('offline-test-mode').checked;
+  element('p4-executable').disabled = enabled;
+  element('choose-p4').disabled = enabled || state.busy || !state.bridgeReady;
+  element('p4-status').textContent = enabled
+    ? '테스트에서 제외'
+    : (state.system.p4Detected ? '감지됨' : '찾지 못함');
+  element('p4-detail').textContent = enabled
+    ? '로컬 읽기 전용 점검만 실행합니다'
+    : (state.system.p4Executable || '직접 선택할 수 있습니다');
+  element('doctor-step-detail').textContent = enabled
+    ? 'Wwise · 로컬 파일 · WAAPI'
+    : 'Wwise · P4 · WAAPI';
+  element('doctor-description').textContent = enabled
+    ? 'Wwise 프로젝트, Originals WAV, Work Unit과 WAAPI 연결을 확인합니다. Perforce 점검은 제외됩니다.'
+    : 'Wwise 프로젝트, Originals WAV, Work Unit, Perforce workspace와 WAAPI 연결을 확인합니다.';
 }
 
 function renderReadiness(result) {
@@ -116,7 +138,11 @@ function renderReadiness(result) {
     const title = document.createElement('strong');
     title.textContent = checkLabels[check.name] || check.name;
     const message = document.createElement('p');
-    message.textContent = readinessMessages[check.name]?.[check.status] || check.message;
+    const skippedPerforce = result.offlineTestMode
+      && ['p4-cli', 'p4-workspace'].includes(check.name);
+    message.textContent = skippedPerforce
+      ? '로컬 테스트 모드에서는 이 Perforce 점검을 건너뜁니다.'
+      : (readinessMessages[check.name]?.[check.status] || check.message);
     copy.append(title, message);
     item.append(symbol, copy);
     list.append(item);
@@ -138,7 +164,10 @@ function renderPlan(result) {
   element('move-count').textContent = counts['move-and-patch'] || 0;
   element('skip-count').textContent = counts.skip || 0;
   element('review-count').textContent = counts['manual-review'] || 0;
-  element('validation-state').textContent = result.validation?.valid ? '통과' : '확인 필요';
+  element('validation-state').textContent = result.validation?.valid
+    ? (result.offlineTestMode ? '로컬 통과' : '통과')
+    : '확인 필요';
+  element('offline-result-note').hidden = !result.offlineTestMode;
   element('plan-summary').hidden = false;
   element('plan-empty').hidden = true;
 
@@ -215,7 +244,7 @@ function setBusy(busy, message = '준비됨') {
   element('run-doctor').disabled = busy || !state.bridgeReady;
   element('run-plan').disabled = busy || !state.bridgeReady || !state.doctorPassed;
   element('choose-project').disabled = busy || !state.bridgeReady;
-  element('choose-p4').disabled = busy || !state.bridgeReady;
+  element('choose-p4').disabled = busy || !state.bridgeReady || element('offline-test-mode').checked;
 }
 
 function showError(message) {
@@ -262,10 +291,8 @@ async function chooseProject() {
     if (!result.cancelled) {
       element('project-root').value = result.projectRoot;
       updateProjectState();
-      state.doctorPassed = false;
-      element('run-plan').disabled = true;
+      resetResults();
       setStep('project', 'done');
-      setStep('doctor', 'active');
     }
   } catch (error) {
     showError(error.message);
@@ -292,7 +319,10 @@ async function runDoctor() {
     showError('먼저 Wwise 프로젝트 폴더를 선택해 주세요.');
     return;
   }
-  setBusy(true, 'Wwise와 Perforce 환경을 확인하고 있습니다…');
+  const offline = element('offline-test-mode').checked;
+  setBusy(true, offline
+    ? 'Wwise와 로컬 프로젝트를 확인하고 있습니다…'
+    : 'Wwise와 Perforce 환경을 확인하고 있습니다…');
   try {
     const result = await invoke('run_doctor', settingsFromForm());
     renderReadiness(result);
@@ -316,6 +346,34 @@ async function runPlan() {
   }
 }
 
+function changeOfflineMode() {
+  resetResults();
+  updateOfflineModePresentation();
+  clearError();
+  element('activity-text').textContent = element('offline-test-mode').checked
+    ? 'Perforce 없는 로컬 테스트 모드'
+    : '일반 환경 점검 모드';
+}
+
+function resetResults() {
+  state.doctorPassed = false;
+  element('run-plan').disabled = true;
+  element('readiness-list').replaceChildren();
+  element('readiness-list').hidden = true;
+  element('readiness-empty').hidden = false;
+  element('doctor-report').hidden = true;
+  element('plan-summary').hidden = true;
+  element('plan-empty').hidden = false;
+  element('plan-table-body').replaceChildren();
+  element('plan-table-wrap').hidden = true;
+  element('validation-issues').hidden = true;
+  element('plan-report').hidden = true;
+  element('offline-result-note').hidden = true;
+  setStep('doctor', 'active');
+  const planStep = document.querySelector('[data-step="plan"]');
+  planStep?.classList.remove('active', 'done');
+}
+
 function loadPreview() {
   state.bridgeReady = false;
   element('bridge-status').textContent = '브라우저 미리보기';
@@ -327,6 +385,7 @@ function loadPreview() {
     chapter: 'CH04',
     waapiUrl: 'ws://127.0.0.1:8080/waapi',
     p4Executable: 'C:\\Program Files\\Perforce\\p4.exe',
+    offlineTestMode: false,
   });
   renderSystem({
     platform: 'Windows',
@@ -363,6 +422,7 @@ element('choose-p4').addEventListener('click', chooseP4);
 element('run-doctor').addEventListener('click', runDoctor);
 element('run-plan').addEventListener('click', runPlan);
 element('project-root').addEventListener('input', updateProjectState);
+element('offline-test-mode').addEventListener('change', changeOfflineMode);
 window.addEventListener('pywebviewready', initialize, {once: true});
 
 if (new URLSearchParams(window.location.search).get('preview') === '1') {

@@ -16,6 +16,7 @@ from ..planner import build_relocation_plan
 from ..preflight import P4WorkspaceProbe, validate_relocation_plan
 from ..readiness import (
     PilotReadiness,
+    ReadinessCheck,
     inspect_pilot_readiness,
     render_readiness_markdown,
 )
@@ -33,11 +34,25 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "chapter": "CH04",
     "waapiUrl": "ws://127.0.0.1:8080/waapi",
     "p4Executable": "",
+    "offlineTestMode": False,
 }
 
 
 class GuiServiceError(RuntimeError):
     """An actionable operator error that is safe to show in the GUI."""
+
+
+class LocalTestWorkspaceProbe:
+    """Skip Perforce-only checks while keeping local plan validation active."""
+
+    def is_available(self) -> bool:
+        return True
+
+    def is_in_workspace(self, path: Path) -> bool:
+        return True
+
+    def is_opened(self, path: Path) -> bool:
+        return False
 
 
 class PortableSettingsStore:
@@ -107,6 +122,7 @@ class ReadOnlyGuiService:
                 "apply": False,
                 "rollback": False,
                 "installsDependencies": False,
+                "offlineTestMode": True,
             },
         }
 
@@ -118,12 +134,17 @@ class ReadOnlyGuiService:
         project_root = _project_root(settings)
         p4_executable = _p4_executable(settings)
         waapi_host, waapi_port = _waapi_endpoint(settings)
+        offline_test_mode = _offline_test_mode(settings)
         readiness = self._readiness_inspector(
             project_root,
             p4_executable=p4_executable,
+            p4_available=True if offline_test_mode else None,
+            p4_workspace=True if offline_test_mode else None,
             waapi_host=waapi_host,
             waapi_port=waapi_port,
         )
+        if offline_test_mode:
+            readiness = _mark_perforce_skipped(readiness)
         report_root = self._new_report_root("doctor")
         json_path = report_root / "readiness.json"
         markdown_path = report_root / "readiness.md"
@@ -133,6 +154,7 @@ class ReadOnlyGuiService:
         )
         return {
             **readiness.to_dict(),
+            "offlineTestMode": offline_test_mode,
             "reports": {
                 "json": json_path.as_posix(),
                 "markdown": markdown_path.as_posix(),
@@ -144,12 +166,17 @@ class ReadOnlyGuiService:
         project_root = _project_root(settings)
         p4_executable = _p4_executable(settings)
         waapi_host, waapi_port = _waapi_endpoint(settings)
+        offline_test_mode = _offline_test_mode(settings)
         readiness = self._readiness_inspector(
             project_root,
             p4_executable=p4_executable,
+            p4_available=True if offline_test_mode else None,
+            p4_workspace=True if offline_test_mode else None,
             waapi_host=waapi_host,
             waapi_port=waapi_port,
         )
+        if offline_test_mode:
+            readiness = _mark_perforce_skipped(readiness)
         if not readiness.ready:
             failed = "; ".join(
                 check.message for check in readiness.checks if check.status == "fail"
@@ -168,9 +195,12 @@ class ReadOnlyGuiService:
             url=waapi_url,
         )
         plan = self._planner(scan)
-        validation = self._plan_validator(
-            plan, probe=P4WorkspaceProbe(executable=p4_executable)
+        probe = (
+            LocalTestWorkspaceProbe()
+            if offline_test_mode
+            else P4WorkspaceProbe(executable=p4_executable)
         )
+        validation = self._plan_validator(plan, probe=probe)
 
         report_root = self._new_report_root("plan")
         scan_path = report_root / "scan.json"
@@ -193,6 +223,7 @@ class ReadOnlyGuiService:
             "projectRoot": project_root.as_posix(),
             "objectRoot": object_root,
             "chapter": chapter,
+            "offlineTestMode": offline_test_mode,
             "counts": counts,
             "items": [item.to_dict() for item in plan.items],
             "validation": validation.to_dict(),
@@ -248,6 +279,8 @@ def _normalize_settings(values: Mapping[str, object]) -> dict[str, object]:
         value = values.get(key, default)
         if isinstance(default, str):
             normalized[key] = value.strip() if isinstance(value, str) else default
+        elif isinstance(default, bool):
+            normalized[key] = value if isinstance(value, bool) else default
     return normalized
 
 
@@ -259,6 +292,24 @@ def _project_root(settings: Mapping[str, object]) -> Path:
 def _p4_executable(settings: Mapping[str, object]) -> str:
     configured = str(settings.get("p4Executable") or "").strip()
     return configured or discover_p4_executable() or "p4"
+
+
+def _offline_test_mode(settings: Mapping[str, object]) -> bool:
+    return settings.get("offlineTestMode") is True
+
+
+def _mark_perforce_skipped(readiness: PilotReadiness) -> PilotReadiness:
+    checks = tuple(
+        ReadinessCheck(
+            check.name,
+            "pass",
+            "Skipped in local test mode; no Perforce command was executed",
+        )
+        if check.name in {"p4-cli", "p4-workspace"}
+        else check
+        for check in readiness.checks
+    )
+    return PilotReadiness(readiness.project_root, checks)
 
 
 def _waapi_endpoint(settings: Mapping[str, object]) -> tuple[str, int]:

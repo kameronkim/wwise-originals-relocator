@@ -46,6 +46,11 @@ prerequisites. See the
 [portable GUI guide](docs/portable-gui.md) and its
 [offline HTML edition](docs/usage-guide.html).
 
+When Perforce is not available, the GUI's explicit local test mode can still
+exercise Wwise/WAAPI scanning, local path validation, planning, and report
+rendering. It skips only Perforce CLI, workspace, and opened-file checks and
+continues to expose no mutation controls.
+
 The repository also retains the CLI for developers and validation operators. It
 can perform the guarded single-file pilot described above. GUI read-only scope
 does not remove or broaden that separate CLI contract.
