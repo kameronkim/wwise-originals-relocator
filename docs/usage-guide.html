@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Wwise P4 Source Relocator의 설치, 테스트, 단일 파일 적용, 검증, 롤백 가이드">
+  <link rel="icon" href="data:,">
+  <title>Wwise P4 Source Relocator | 테스트 및 사용 가이드</title>
+  <style>
+    :root {
+      --bg: #f4f2ed;
+      --surface: #fffdf8;
+      --surface-strong: #ffffff;
+      --ink: #18201f;
+      --muted: #5f6966;
+      --line: #d8d4ca;
+      --accent: #006b62;
+      --accent-strong: #004c46;
+      --accent-soft: #dceeea;
+      --warning: #8c4f00;
+      --warning-soft: #fff0d5;
+      --danger: #9e2a2b;
+      --danger-soft: #fbe5e3;
+      --code-bg: #142421;
+      --code-ink: #e8f4ef;
+      --shadow: 0 16px 42px rgba(23, 39, 35, 0.08);
+      --radius: 18px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 8% 0%, rgba(0, 107, 98, 0.10), transparent 28rem),
+        var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.7;
+    }
+    a { color: var(--accent-strong); text-underline-offset: 3px; }
+    a:hover { text-decoration-thickness: 2px; }
+    code, pre { font-family: var(--mono); }
+    :focus-visible { outline: 3px solid #f0aa3c; outline-offset: 3px; }
+
+    .skip-link {
+      position: absolute;
+      left: 16px;
+      top: -80px;
+      z-index: 100;
+      padding: 10px 14px;
+      background: var(--ink);
+      color: white;
+      border-radius: 8px;
+    }
+    .skip-link:focus { top: 16px; }
+
+    .page-shell {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 28px 0 72px;
+    }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(28px, 6vw, 68px);
+      border: 1px solid rgba(0, 107, 98, 0.22);
+      border-radius: 28px;
+      background: linear-gradient(135deg, #072b27 0%, #075b53 65%, #11776c 100%);
+      color: #f6fffc;
+      box-shadow: var(--shadow);
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      width: 340px;
+      height: 340px;
+      right: -140px;
+      bottom: -190px;
+      border: 52px solid rgba(255,255,255,0.08);
+      border-radius: 50%;
+    }
+    .eyebrow {
+      margin: 0 0 12px;
+      color: #a9ded5;
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3 { line-height: 1.25; letter-spacing: -0.025em; }
+    h1 {
+      max-width: 820px;
+      margin: 0;
+      font-size: clamp(2.15rem, 5vw, 4.6rem);
+      font-weight: 850;
+    }
+    .hero-copy {
+      max-width: 760px;
+      margin: 22px 0 0;
+      color: #d7ece7;
+      font-size: clamp(1rem, 2vw, 1.18rem);
+    }
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 11px;
+      border: 1px solid rgba(255,255,255,0.22);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.09);
+      color: #effbf8;
+      font-size: 0.86rem;
+      font-weight: 700;
+    }
+    .tag::before { content: "✓"; color: #8ee0c6; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 28px;
+      align-items: start;
+      margin-top: 30px;
+    }
+    .toc {
+      position: sticky;
+      top: 20px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 253, 248, 0.88);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 10px 30px rgba(23,39,35,0.05);
+    }
+    .toc-title {
+      margin: 0 0 12px;
+      font-size: 0.78rem;
+      font-weight: 850;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .toc ol { margin: 0; padding: 0; list-style: none; }
+    .toc li + li { margin-top: 4px; }
+    .toc a {
+      display: block;
+      padding: 7px 9px;
+      border-radius: 8px;
+      color: var(--ink);
+      text-decoration: none;
+      font-size: 0.92rem;
+    }
+    .toc a:hover { background: var(--accent-soft); color: var(--accent-strong); }
+
+    main { min-width: 0; }
+    section {
+      padding: clamp(24px, 4vw, 42px);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: 0 10px 30px rgba(23,39,35,0.04);
+    }
+    section + section { margin-top: 22px; }
+    section > :first-child { margin-top: 0; }
+    section > :last-child { margin-bottom: 0; }
+    h2 { margin: 0 0 18px; font-size: clamp(1.55rem, 3vw, 2.15rem); }
+    h3 { margin: 30px 0 10px; font-size: 1.18rem; }
+    p { margin: 10px 0 16px; }
+    ul, ol { padding-left: 1.35rem; }
+    li + li { margin-top: 6px; }
+    .lede { color: var(--muted); font-size: 1.05rem; }
+    .section-label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: 850;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin: 22px 0;
+    }
+    .card {
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--surface-strong);
+    }
+    .card h3 { margin: 0 0 8px; font-size: 1.03rem; }
+    .card p { margin: 0; color: var(--muted); font-size: 0.94rem; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 9px;
+      padding: 0;
+      margin: 24px 0;
+      list-style: none;
+      counter-reset: flow;
+    }
+    .flow li {
+      position: relative;
+      min-height: 112px;
+      padding: 17px 14px 14px;
+      border: 1px solid #b8d7d1;
+      border-radius: 13px;
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      font-size: 0.86rem;
+      font-weight: 750;
+      line-height: 1.35;
+      counter-increment: flow;
+    }
+    .flow li::before {
+      content: counter(flow, decimal-leading-zero);
+      display: block;
+      margin-bottom: 11px;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+    }
+
+    .callout {
+      margin: 20px 0;
+      padding: 18px 20px;
+      border-left: 5px solid var(--accent);
+      border-radius: 10px;
+      background: var(--accent-soft);
+    }
+    .callout.warning { border-left-color: var(--warning); background: var(--warning-soft); }
+    .callout.danger { border-left-color: var(--danger); background: var(--danger-soft); }
+    .callout strong { display: block; margin-bottom: 3px; }
+    .callout p { margin: 0; }
+
+    .code-block {
+      position: relative;
+      margin: 15px 0 22px;
+      border: 1px solid #2c4b45;
+      border-radius: 13px;
+      overflow: hidden;
+      background: var(--code-bg);
+      color: var(--code-ink);
+    }
+    .code-label {
+      display: flex;
+      align-items: center;
+      min-height: 42px;
+      padding: 8px 100px 8px 15px;
+      border-bottom: 1px solid rgba(255,255,255,0.12);
+      color: #a9c4bd;
+      font-size: 0.75rem;
+      font-weight: 750;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    pre {
+      overflow-x: auto;
+      margin: 0;
+      padding: 18px;
+      font-size: 0.87rem;
+      line-height: 1.65;
+      tab-size: 2;
+    }
+    .copy-button {
+      position: absolute;
+      top: 7px;
+      right: 8px;
+      min-width: 75px;
+      padding: 6px 10px;
+      border: 1px solid rgba(255,255,255,0.22);
+      border-radius: 7px;
+      background: rgba(255,255,255,0.08);
+      color: white;
+      font: 700 0.75rem var(--sans);
+      cursor: pointer;
+    }
+    .copy-button:hover { background: rgba(255,255,255,0.17); }
+    p code, li code, td code {
+      padding: 0.15em 0.38em;
+      border-radius: 5px;
+      background: #e7e4dd;
+      color: #163e39;
+      font-size: 0.9em;
+    }
+
+    .table-wrap { overflow-x: auto; margin: 18px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.93rem; }
+    th, td { padding: 12px 13px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: #ece9e1; color: #35413f; font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; }
+    tbody tr:hover { background: rgba(0,107,98,0.035); }
+    .status-ok { color: var(--accent-strong); font-weight: 800; }
+    .status-stop { color: var(--danger); font-weight: 800; }
+
+    details {
+      margin: 13px 0;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface-strong);
+    }
+    summary { padding: 15px 18px; cursor: pointer; font-weight: 800; }
+    details > div { padding: 0 18px 18px; }
+
+    .checklist { padding: 0; margin: 18px 0; list-style: none; }
+    .checklist li { position: relative; padding-left: 30px; }
+    .checklist li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.42em;
+      width: 15px;
+      height: 15px;
+      border: 2px solid var(--accent);
+      border-radius: 4px;
+      background: white;
+    }
+    .back { display: inline-block; margin-top: 22px; font-size: 0.86rem; font-weight: 700; }
+    footer { padding: 30px 6px 0; color: var(--muted); font-size: 0.88rem; text-align: center; }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .toc { position: static; }
+      .toc ol { columns: 2; }
+      .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 620px) {
+      .page-shell { width: min(100% - 24px, 1180px); padding-top: 12px; }
+      .hero { padding: 30px 24px; border-radius: 20px; }
+      .layout { margin-top: 16px; gap: 16px; }
+      section { padding: 24px 20px; }
+      .cards, .flow { grid-template-columns: 1fr; }
+      .flow li { min-height: auto; }
+      .toc ol { columns: 1; }
+      pre { font-size: 0.78rem; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101614;
+        --surface: #17201e;
+        --surface-strong: #1c2623;
+        --ink: #edf4f1;
+        --muted: #aebbb7;
+        --line: #34433f;
+        --accent: #70cfbd;
+        --accent-strong: #9be1d3;
+        --accent-soft: #1b3b35;
+        --warning: #f5bc63;
+        --warning-soft: #3d2d17;
+        --danger: #ff9b97;
+        --danger-soft: #432321;
+      }
+      .toc { background: rgba(23, 32, 30, 0.9); }
+      p code, li code, td code, th { background: #25312e; color: #c8eee6; }
+      .checklist li::before { background: #17201e; }
+    }
+    @media print {
+      body { background: white; color: black; font-size: 10pt; }
+      .page-shell { width: 100%; padding: 0; }
+      .hero { color: white; box-shadow: none; }
+      .layout { display: block; }
+      .toc, .copy-button, .back { display: none; }
+      section { break-inside: avoid; box-shadow: none; margin-top: 12px; }
+      .code-block { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body id="top">
+  <a class="skip-link" href="#main">본문으로 바로가기</a>
+
+  <div class="page-shell">
+    <header class="hero">
+      <p class="eyebrow">Operations Guide · v0.1</p>
+      <h1>테스트 및 사용 가이드</h1>
+      <p class="hero-copy">
+        Wwise Originals의 WAV를 Perforce 이력을 보존하면서 옮기고, WWU 참조·Wwise 객체 GUID·롤백 가능성을 단계별로 검증하는 실무 절차입니다.
+      </p>
+      <div class="hero-meta" aria-label="가이드 특성">
+        <span class="tag">단일 파일 안전 게이트</span>
+        <span class="tag">실제 p4 move</span>
+        <span class="tag">WAAPI 검증</span>
+        <span class="tag">Manifest 롤백</span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <nav class="toc" aria-label="문서 목차">
+        <p class="toc-title">Contents</p>
+        <ol>
+          <li><a href="#overview">1. 먼저 알아둘 것</a></li>
+          <li><a href="#install">2. 설치와 기본 테스트</a></li>
+          <li><a href="#readonly">3. 읽기 전용 점검</a></li>
+          <li><a href="#pilot-project">4. Wwise 테스트 프로젝트</a></li>
+          <li><a href="#perforce">5. 로컬 Perforce</a></li>
+          <li><a href="#live-flow">6. 통합 테스트 절차</a></li>
+          <li><a href="#evidence">7. 성공 판정 기준</a></li>
+          <li><a href="#troubleshooting">8. 문제 해결</a></li>
+          <li><a href="#production">9. 실제 프로젝트 적용</a></li>
+          <li><a href="#reference">10. 명령어 요약</a></li>
+        </ol>
+      </nav>
+
+      <main id="main">
+        <section id="overview">
+          <span class="section-label">Start here</span>
+          <h2>먼저 알아둘 것</h2>
+          <p class="lede">
+            이 도구의 기본 단위는 <strong>검토가 끝난 WAV 한 파일</strong>입니다. 계획 단계까지는 읽기 전용이며, 실제 변경은 반드시 명시적인 <code>apply --only</code>와 롤백 manifest를 통해서만 진행합니다.
+          </p>
+
+          <div class="cards">
+            <article class="card">
+              <h3>도구가 하는 일</h3>
+              <p>WAAPI/WWU에서 소스를 찾고, 이동 계획을 만든 뒤 <code>p4 move</code>와 GUID 범위의 정확한 WWU 패치를 수행합니다.</p>
+            </article>
+            <article class="card">
+              <h3>도구가 하지 않는 일</h3>
+              <p>배치 적용, changelist submit, 애매하거나 공유된 소스의 자동 이동은 수행하지 않습니다.</p>
+            </article>
+          </div>
+
+          <ol class="flow" aria-label="권장 실행 순서">
+            <li>doctor<br>준비 상태 확인</li>
+            <li>scan<br>Wwise 객체 수집</li>
+            <li>plan<br>이동안 생성</li>
+            <li>validate-plan<br>사전 검증</li>
+            <li>apply --only<br>한 파일 적용</li>
+            <li>Wwise 재시작<br>외부 변경 로드</li>
+            <li>validate-apply<br>사후 검증</li>
+            <li>rollback<br>원상 복구</li>
+          </ol>
+
+          <div class="callout danger">
+            <strong>안전 계약</strong>
+            <p>도구는 changelist를 submit하지 않습니다. 테스트 중에도 baseline 이외의 relocation changelist는 submit하지 마세요.</p>
+          </div>
+          <a class="back" href="#top">맨 위로 ↑</a>
+        </section>
+
+        <section id="install">
+          <span class="section-label">Setup</span>
+          <h2>설치와 기본 테스트</h2>
+          <p>저장소 루트에서 Python 3.11 이상을 사용합니다. WAAPI 기능까지 포함하려면 프로젝트 전용 가상환경에 optional dependency를 설치하세요.</p>
+
+          <div class="code-block">
+            <div class="code-label">가상환경 및 개발 의존성 설치</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>python3 -m venv .venv
+.venv/bin/python -m pip install -e ".[dev,waapi]"</code></pre>
+          </div>
+
+          <h3>자동화 테스트</h3>
+          <div class="code-block">
+            <div class="code-label">전체 단위 테스트</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>.venv/bin/python -m pytest</code></pre>
+          </div>
+          <p><span class="status-ok">성공:</span> 모든 테스트가 통과하고 종료 코드가 <code>0</code>입니다. 이 테스트는 parser, planner, preflight, apply/rollback, P4 오류 판별, WAAPI reader, pilot project 생성을 다룹니다.</p>
+
+          <h3>CLI가 설치되었는지 확인</h3>
+          <div class="code-block">
+            <div class="code-label">도움말</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>.venv/bin/wwise-p4-source-relocator --help</code></pre>
+          </div>
+          <a class="back" href="#top">맨 위로 ↑</a>
+        </section>
+
+        <section id="readonly">
+          <span class="section-label">Zero mutation</span>
+          <h2>읽기 전용 점검부터 시작하기</h2>
+          <p class="lede">Wwise나 Perforce 없이도 포함된 fixture WWU를 파싱하고, 변경 없는 inspection plan을 만들 수 있습니다.</p>
+
+          <div class="code-block">
+            <div class="code-label">Fixture WWU 검사</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>mkdir -p reports
+
+.venv/bin/wwise-p4-source-relocator inspect-wwu \
+  --wwu "tests/fixtures/sample_project/Actor-Mixer Hierarchy/Default Work Unit.wwu" \
+  --project-root tests/fixtures/sample_project \
+  --json-out reports/source-plan.json \
+  --markdown-out reports/source-plan.md</code></pre>
+          </div>
+
+          <div class="callout">
+            <strong>예상 결과</strong>
+            <p>발견한 source reference 수가 출력되고, 모든 항목은 의도적으로 <code>skip</code> 처리됩니다. 이 명령은 파일을 옮기거나 WWU를 수정하지 않습니다.</p>
+          </div>
+
+          <h3>실제 프로젝트 준비 상태 확인</h3>
+          <p><code>doctor</code>는 apply 전에 반드시 통과해야 하는 첫 게이트입니다. <code>.wproj</code> 수, Originals WAV, WWU source reference, <code>p4</code>, workspace mapping, <code>waapi-client</code>, WAAPI 연결을 확인합니다.</p>
+          <div class="code-block">
+            <div class="code-label">Doctor — 읽기 전용</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>.venv/bin/wwise-p4-source-relocator doctor \
+  --project-root "/absolute/path/to/WwiseProject" \
+  --waapi-port 18080 \
+  --json-out reports/pilot-readiness.json \
+  --markdown-out reports/pilot-readiness.md</code></pre>
+          </div>
+          <p><span class="status-stop">중단:</span> 하나라도 실패하면 실제 적용으로 넘어가지 말고 보고서의 blocker를 먼저 해결합니다.</p>
+          <a class="back" href="#top">맨 위로 ↑</a>
+        </section>
+
+        <section id="pilot-project">
+          <span class="section-label">Disposable Wwise</span>
+          <h2>Wwise 테스트 프로젝트 만들기</h2>
+          <p><code>bootstrap-project</code>는 비어 있는 경로에만 새 Wwise 프로젝트를 생성합니다. 기존 <code>.wproj</code>는 건드리지 않습니다.</p>
+
+          <div class="code-block">
+            <div class="code-label">테스트 프로젝트 생성</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>export PILOT_ROOT=/private/tmp/wwise-relocator-p4/workspace/WwiseRelocatorPilot
+
+.venv/bin/wwise-p4-source-relocator bootstrap-project \
+  --project-root "$PILOT_ROOT"</code></pre>
+          </div>
+
+          <p>생성되는 fixture는 다음 불일치를 의도적으로 포함합니다.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>항목</th><th>생성 값</th><th>계획 결과</th></tr></thead>
+              <tbody>
+                <tr><td>Wwise 객체</td><td><code>\Containers\Default Work Unit\VO\Script\CH04</code></td><td>카테고리는 Script</td></tr>
+                <tr><td>현재 WAV</td><td><code>Originals/Voices/English(US)/Scenario/CH04/CH04_S102_WT_001.wav</code></td><td>잘못된 Scenario 위치</td></tr>
+                <tr><td>예상 WAV</td><td><code>Originals/Voices/English(US)/Script/CH04/CH04_S102_WT_001.wav</code></td><td><code>move-and-patch</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>프로젝트 루트의 <code>relocator-pilot.json</code>에는 스캔 root와 예상 source/target 경로가 기록됩니다.</p>
+
+          <div class="callout warning">
+            <strong>대상 경로 보호</strong>
+            <p>destination이 비어 있지 않으면 bootstrap이 거부합니다. 테스트를 다시 만들 때는 새 디렉터리 이름을 사용하세요.</p>
+          </div>
+          <a class="back" href="#top">맨 위로 ↑</a>
+        </section>
+
+        <section id="perforce">
+          <span class="section-label">Disposable Helix Core</span>
+          <h2>공용 Perforce가 없을 때</h2>
+          <p class="lede">loopback에만 바인딩한 일회용 P4 Server로 실제 <code>p4 edit</code>, <code>p4 move</code>, pending changelist, rollback을 검증할 수 있습니다.</p>
+
+          <h3>환경 변수</h3>
+          <div class="code-block">
+            <div class="code-label">로컬 pilot 환경</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>export PATH="$PWD/.tools/perforce:$PATH"
+export P4PORT=127.0.0.1:16661
+export P4USER=pilot
+export P4CLIENT=wwise-relocator-pilot
+export PYTHONPATH=src</code></pre>
+          </div>
+
+          <h3>서버 시작</h3>
+          <div class="code-block">
+            <div class="code-label">별도 터미널에서 실행</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>.tools/perforce/p4d \
+  -r /tmp/wwise-relocator-p4/server \
+  -p 127.0.0.1:16661 \
+  -L /tmp/wwise-relocator-p4/p4d.log \
+  -J /tmp/wwise-relocator-p4/journal</code></pre>
+          </div>
+
+          <details>
+            <summary>P4 Server 2026.1 최초 사용자 bootstrap 보기</summary>
+            <div>
+              <p>새 서버가 데이터베이스를 만든 뒤 <code>p4d</code>를 중지하고 다음 설정을 적용합니다. 이 완화 설정은 localhost 전용 disposable server에만 사용하세요.</p>
+              <div class="code-block">
+                <div class="code-label">일회용 서버 설정</div>
+                <button class="copy-button" type="button">복사</button>
+                <pre><code>.tools/perforce/p4d -r /tmp/wwise-relocator-p4/server '-cset dm.user.noautocreate=0'
+.tools/perforce/p4d -r /tmp/wwise-relocator-p4/server '-cset dm.user.setinitialpasswd=1'
+.tools/perforce/p4d -r /tmp/wwise-relocator-p4/server '-cset dm.user.resetpassword=0'
+.tools/perforce/p4d -r /tmp/wwise-relocator-p4/server '-cset run.users.authorize=0'
+.tools/perforce/p4d -r /tmp/wwise-relocator-p4/server '-cset dm.user.hideinvalid=0'
+
+.tools/perforce/p4 -p 127.0.0.1:16661 -u pilot passwd
+.tools/perforce/p4 -p 127.0.0.1:16661 -u pilot login</code></pre>
+              </div>
+            </div>
+          </details>
+
+          <h3>Client root 규칙</h3>
+          <div class="callout warning">
+            <strong>macOS에서는 <code>/private/tmp</code> 사용</strong>
+            <p>Python은 <code>/tmp</code>를 <code>/private/tmp</code>로 해석합니다. P4 client의 <code>Root</code>도 <code>/private/tmp/wwise-relocator-p4/workspace</code>로 지정해야 workspace preflight가 일치합니다.</p>
+          </div>
+
+          <p>test project를 depot에 reconcile하고 <strong>fixture baseline만 submit</strong>합니다. relocation에는 별도의 numbered pending changelist를 만들되 submit하지 않습니다. 상세 client spec과 binary 검증 절차는 <a href="local-perforce-pilot.md">Local Perforce Pilot 문서</a>를 참고하세요.</p>
+          <a class="back" href="#top">맨 위로 ↑</a>
+        </section>
+
+        <section id="live-flow">
+          <span class="section-label">End-to-end</span>
+          <h2>Wwise + Perforce 통합 테스트</h2>
+          <p>아래 예시는 macOS Wwise 2025.1.8 경로, WAAPI WAMP <code>18080</code>, HTTP <code>18090</code>, pending changelist <code>2</code>를 사용합니다. 설치 경로와 changelist 번호는 현재 환경에 맞게 바꾸세요.</p>
+
+          <h3>1. WAAPI server 시작</h3>
+          <div class="code-block">
+            <div class="code-label">별도 터미널 — 계속 실행</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>"/Applications/Audiokinetic/Wwise_2025.1.8.9170/Wwise.app/Contents/Tools/WwiseConsole.sh" \
+  waapi-server \
+  "$PILOT_ROOT/WwiseRelocatorPilot.wproj" \
+  --wamp-port 18080 \
+  --http-port 18090 \
+  --allowed-origin localhost,127.0.0.1</code></pre>
+          </div>
+
+          <h3>2. 준비 상태 확인</h3>
+          <div class="code-block">
+            <div class="code-label">Doctor</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>mkdir -p reports
+
+.venv/bin/wwise-p4-source-relocator doctor \
+  --project-root "$PILOT_ROOT" \
+  --waapi-port 18080 \
+  --json-out reports/live-readiness.json \
+  --markdown-out reports/live-readiness.md</code></pre>
+          </div>
+
+          <h3>3. Scan → plan → preflight</h3>
+          <div class="code-block">
+            <div class="code-label">변경 전 계획</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>.venv/bin/wwise-p4-source-relocator scan \
+  --project-root "$PILOT_ROOT" \
+  --object-root "\Containers\Default Work Unit\VO" \
+  --chapter CH04 \
+  --waapi-url ws://127.0.0.1:18080/waapi \
+  --out reports/live-scan.json
+
+.venv/bin/wwise-p4-source-relocator plan \
+  --scan reports/live-scan.json \
+  --out reports/live-plan.json
+
+.venv/bin/wwise-p4-source-relocator validate-plan \
+  --plan reports/live-plan.json \
+  --report reports/live-preflight.md</code></pre>
+          </div>
+
+          <div class="callout">
+            <strong>검토 게이트</strong>
+            <p><code>reports/live-plan.json</code>과 자동 생성되는 Markdown을 열어 source, target, object GUID, Work Unit이 의도와 일치하는지 사람이 확인한 뒤에만 진행합니다.</p>
+          </div>
+
+          <h3>4. 한 파일 적용</h3>
+          <div class="code-block">
+            <div class="code-label">Single-file apply</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>.venv/bin/wwise-p4-source-relocator apply \
+  --plan reports/live-plan.json \
+  --only CH04_S102_WT_001.wav \
+  --changelist 2 \
+  --manifest reports/live-manifest.json</code></pre>
+          </div>
+          <p>manifest는 첫 mutating P4 명령보다 먼저 저장됩니다. WWU patch 또는 로컬 검증이 실패하면 도구가 manifest에 기록된 WAV와 WWU만 즉시 되돌리려고 시도합니다.</p>
+
+          <h3>5. Wwise 재시작 후 사후 검증</h3>
+          <div class="callout warning">
+            <strong>필수 재시작</strong>
+            <p>headless <code>waapi-server</code>는 외부에서 변경된 WWU를 실행 중에 reload하지 않습니다. 적용 후 Ctrl-C로 중지하고 같은 명령으로 다시 시작하세요.</p>
+          </div>
+          <div class="code-block">
+            <div class="code-label">Post-apply validation</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>.venv/bin/wwise-p4-source-relocator validate-apply \
+  --manifest reports/live-manifest.json \
+  --waapi-url ws://127.0.0.1:18080/waapi \
+  --report reports/live-validation.md</code></pre>
+          </div>
+
+          <h3>6. 롤백</h3>
+          <div class="code-block">
+            <div class="code-label">Manifest 범위 롤백</div>
+            <button class="copy-button" type="button">복사</button>
+            <pre><code>.venv/bin/wwise-p4-source-relocator rollback \
+  --manifest reports/live-manifest.json</code></pre>
+          </div>
+          <p>Wwise 복구 상태까지 다시 확인하려면 WAAPI server를 한 번 더 재시작하고 scan 또는 <code>doctor</code>를 실행합니다.</p>
+          <a class="back" href="#top">맨 위로 ↑</a>
+        </section>
+
+        <section id="evidence">
+          <span class="section-label">Acceptance</span>
+          <h2>성공 판정 기준</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>시점</th><th>확인 항목</th><th>성공 조건</th></tr></thead>
+              <tbody>
+                <tr><td>계획 전</td><td><code>doctor</code></td><td>모든 readiness check가 통과하고 종료 코드 0</td></tr>
+                <tr><td>계획 후</td><td>plan / preflight</td><td>정확히 의도한 후보가 <code>move-and-patch</code>, manual-review/hard error 없음</td></tr>
+                <tr><td>적용 후</td><td><code>p4 opened</code></td><td>WWU 1개 edit, 기존 WAV move/delete, 새 WAV move/add</td></tr>
+                <tr><td>적용 후</td><td>WWU diff</td><td>대상 GUID의 <code>AudioFile</code> 경로 한 곳만 변경</td></tr>
+                <tr><td>적용 후</td><td>Wwise/WAAPI</td><td>GUID와 object path 유지, source path는 새 위치, missing source 없음</td></tr>
+                <tr><td>롤백 후</td><td><code>p4 opened</code></td><td>열린 파일 없음</td></tr>
+                <tr><td>롤백 후</td><td>파일/WWU/manifest</td><td>기존 WAV와 WWU hash 복원, 새 WAV 없음, status가 <code>rolled-back</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <ul class="checklist">
+            <li>baseline changelist 외에는 submit하지 않았다.</li>
+            <li>적용 전에 plan과 preflight 보고서를 사람이 검토했다.</li>
+            <li><code>--only</code>로 정확히 한 파일만 선택했다.</li>
+            <li>manifest를 별도 보고서 디렉터리에 보존했다.</li>
+            <li>apply와 rollback 뒤에 실제 filesystem 및 <code>p4 opened</code> 상태를 확인했다.</li>
+          </ul>
+          <a class="back" href="#top">맨 위로 ↑</a>
+        </section>
+
+        <section id="troubleshooting">
+          <span class="section-label">Diagnostics</span>
+          <h2>자주 발생하는 문제</h2>
+
+          <details open>
+            <summary><code>doctor</code>가 .wproj는 찾지만 준비 실패</summary>
+            <div><p><code>.wproj</code>가 존재하는 것만으로는 충분하지 않습니다. <code>Originals</code> 아래 WAV, WWU source reference, workspace mapping, WAAPI 연결까지 모두 필요합니다. 비어 있는 프로젝트라면 <a href="#pilot-project">bootstrap-project</a>로 fixture를 만드세요.</p></div>
+          </details>
+          <details>
+            <summary>WAAPI 연결 거부 또는 HTTP 403</summary>
+            <div><p>WAMP port가 명령과 일치하는지 확인하고 <code>--allowed-origin localhost,127.0.0.1</code>를 포함하세요. 일반 개발 서버와 겹치기 쉬운 8080/8090 대신 18080/18090을 권장합니다.</p></div>
+          </details>
+          <details>
+            <summary>apply 후에도 Wwise가 이전 source path를 반환</summary>
+            <div><p>외부 WWU 변경이 아직 로드되지 않은 상태입니다. headless WAAPI server를 완전히 중지한 뒤 같은 project와 port로 다시 시작하고 <code>validate-apply</code>를 재실행하세요.</p></div>
+          </details>
+          <details>
+            <summary>Perforce workspace 바깥 파일로 판정됨</summary>
+            <div><p>macOS에서 client root가 <code>/tmp/...</code>로 되어 있다면 canonical <code>/private/tmp/...</code>로 바꾸세요. <code>p4 where</code> 결과와 실제 project root가 동일한 workspace 아래인지도 확인합니다.</p></div>
+          </details>
+          <details>
+            <summary><code>p4</code>가 성공 코드인데 실제 이동이 실패함</summary>
+            <div><p>Perforce는 오류 문구를 출력하면서 process exit code 0을 반환하는 경우가 있습니다. 도구는 status output을 검사하지만, 최종 판정 때는 반드시 파일 위치, <code>p4 opened</code>, WWU diff를 함께 확인하세요.</p></div>
+          </details>
+          <details>
+            <summary><code>p4 move</code>가 source WAV에서 실패</summary>
+            <div><p>source WAV가 먼저 edit 상태여야 합니다. 현재 apply 구현은 <code>p4 edit</code> 후 <code>p4 move</code>를 수행합니다. 수동으로 P4 상태를 바꿨다면 rollback으로 정리한 뒤 계획부터 다시 시작하세요.</p></div>
+          </details>
+          <details>
+            <summary>WwiseConsole이 자동으로 발견되지 않음</summary>
+            <div><p><code>bootstrap-project --wwise-console "/absolute/path/to/WwiseConsole.sh"</code>처럼 설치 경로를 명시하세요. 생성할 폴더 이름과 <code>--project-name</code>은 맞추는 것이 안전합니다.</p></div>
+          </details>
+          <a class="back" href="#top">맨 위로 ↑</a>
+        </section>
+
+        <section id="production">
+          <span class="section-label">Real project</span>
+          <h2>실제 프로젝트에 적용할 때</h2>
+          <p>일회용 pilot에서 동일한 도구 버전으로 apply/validate/rollback을 끝낸 뒤, 실제 Wwise/Perforce 환경에서는 아래 순서를 반복합니다.</p>
+          <ol>
+            <li>팀의 작업 중지 시간과 대상 Work Unit 담당자를 확인합니다.</li>
+            <li>실제 project root에 <code>doctor</code>를 실행하고 보고서를 보존합니다.</li>
+            <li><code>scan → plan → validate-plan</code>까지만 실행해 리뷰를 받습니다.</li>
+            <li>전용 numbered changelist에 정확히 한 WAV만 <code>apply --only</code>합니다.</li>
+            <li>Wwise에서 External Project Changes를 reload하거나 Authoring/WAAPI server를 재시작합니다.</li>
+            <li><code>validate-apply</code>, Wwise missing source 확인, <code>p4 diff</code>, <code>p4 opened</code>를 함께 검토합니다.</li>
+            <li>pilot 단계에서는 <code>rollback</code>으로 원복하고 증거를 기록합니다. submit은 별도의 승인 절차입니다.</li>
+          </ol>
+          <div class="callout danger">
+            <strong>자동화 중단 조건</strong>
+            <p>shared source, 중복 source, 대상 파일 충돌, 여러 WWU match, GUID/object path 불일치, preflight 오류가 하나라도 있으면 수동 검토로 전환합니다.</p>
+          </div>
+          <a class="back" href="#top">맨 위로 ↑</a>
+        </section>
+
+        <section id="reference">
+          <span class="section-label">Quick reference</span>
+          <h2>명령어 요약</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>명령</th><th>역할</th><th>변경 여부</th></tr></thead>
+              <tbody>
+                <tr><td><code>inspect-wwu</code></td><td>WWU source reference 검사 및 no-op plan 생성</td><td>프로젝트 변경 없음</td></tr>
+                <tr><td><code>doctor</code></td><td>Wwise/P4/WAAPI 준비 상태 점검</td><td>변경 없음</td></tr>
+                <tr><td><code>bootstrap-project</code></td><td>새 disposable Wwise fixture 생성</td><td>새 빈 경로에 생성</td></tr>
+                <tr><td><code>scan</code></td><td>WAAPI로 Wwise 객체/source 수집</td><td>변경 없음</td></tr>
+                <tr><td><code>plan</code></td><td>카테고리 기반 relocation plan 생성</td><td>보고서만 생성</td></tr>
+                <tr><td><code>validate-plan</code></td><td>filesystem/P4 preflight</td><td>변경 없음</td></tr>
+                <tr><td><code>apply --only</code></td><td>WAV 한 개 move + WWU exact patch</td><td>변경함</td></tr>
+                <tr><td><code>validate-apply</code></td><td>manifest/P4/WWU/WAAPI 사후 검증</td><td>보고서만 생성</td></tr>
+                <tr><td><code>rollback</code></td><td>manifest에 기록된 경로만 복원</td><td>변경을 원복</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>추가 배경은 <a href="../README.md">README</a>, <a href="live-wwise-pilot.md">Live Wwise Pilot</a>, <a href="local-perforce-pilot.md">Local Perforce Pilot</a>, <a href="development-spec.md">Development Specification</a>을 참고하세요.</p>
+          <a class="back" href="#top">맨 위로 ↑</a>
+        </section>
+      </main>
+    </div>
+
+    <footer>
+      <p>Wwise P4 Source Relocator · 이 문서는 저장소 안에서 오프라인으로 열 수 있는 단일 HTML 파일입니다.</p>
+    </footer>
+  </div>
+
+  <script>
+    const buttons = document.querySelectorAll('.copy-button');
+
+    buttons.forEach((button) => {
+      button.addEventListener('click', async () => {
+        const code = button.parentElement.querySelector('code').textContent;
+        const originalLabel = button.textContent;
+
+        try {
+          await navigator.clipboard.writeText(code);
+          button.textContent = '복사됨';
+        } catch (error) {
+          button.textContent = '복사 실패';
+        }
+
+        window.setTimeout(() => {
+          button.textContent = originalLabel;
+        }, 1400);
+      });
+    });
+  </script>
+</body>
+</html>
