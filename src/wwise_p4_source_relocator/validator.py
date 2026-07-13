@@ -31,21 +31,21 @@ def validate_applied_manifest(
     root = manifest.project_root.resolve()
 
     if (
-        len(manifest.moves) != 1
-        or len(manifest.patched_files) != 1
-        or len(manifest.affected_objects) != 1
+        not manifest.moves
+        or len(manifest.moves) != len(manifest.patched_files)
+        or len(manifest.moves) != len(manifest.affected_objects)
     ):
         return ValidationResult(
             (
                 ValidationIssue(
                     "manifest-scope",
-                    "Apply manifest must describe exactly one move, patch, and object",
+                    "Apply manifest must describe matching moves, patches, and objects",
                 ),
             )
         )
 
     resolved_moves: list[tuple[Path, Path]] = []
-    resolved_work_units: list[Path] = []
+    resolved_work_units: dict[str, Path] = {}
     try:
         resolved_moves = [
             (
@@ -54,10 +54,10 @@ def validate_applied_manifest(
             )
             for move in manifest.moves
         ]
-        resolved_work_units = [
-            resolve_project_path(root, patched.relative_path)
+        resolved_work_units = {
+            patched.relative_path: resolve_project_path(root, patched.relative_path)
             for patched in manifest.patched_files
-        ]
+        }
     except UnsafeProjectPath as exc:
         return ValidationResult((ValidationIssue("outside-project", str(exc)),))
 
@@ -71,7 +71,9 @@ def validate_applied_manifest(
                 ValidationIssue("target-missing", f"Target WAV is missing: {target}")
             )
 
-    for patched, work_unit in zip(manifest.patched_files, resolved_work_units):
+    checked_hashes: set[str] = set()
+    for patched in manifest.patched_files:
+        work_unit = resolved_work_units[patched.relative_path]
         if not work_unit.is_file():
             issues.append(
                 ValidationIssue(
@@ -79,14 +81,21 @@ def validate_applied_manifest(
                 )
             )
             continue
-        digest = hashlib.sha256(work_unit.read_bytes()).hexdigest()
-        if digest != patched.patched_sha256:
-            issues.append(
-                ValidationIssue(
-                    "unexpected-wwu-diff",
-                    f"Work Unit contains changes beyond the prepared patch: {work_unit}",
+        if patched.relative_path not in checked_hashes:
+            checked_hashes.add(patched.relative_path)
+            expected_hashes = {
+                record.patched_sha256
+                for record in manifest.patched_files
+                if record.relative_path == patched.relative_path
+            }
+            digest = hashlib.sha256(work_unit.read_bytes()).hexdigest()
+            if len(expected_hashes) != 1 or digest not in expected_hashes:
+                issues.append(
+                    ValidationIssue(
+                        "unexpected-wwu-diff",
+                        f"Work Unit contains changes beyond the prepared patch: {work_unit}",
+                    )
                 )
-            )
         try:
             old_count = source_path_count_for_guid(
                 work_unit,
@@ -117,35 +126,41 @@ def validate_applied_manifest(
             )
 
     absolute_paths = [path for move in resolved_moves for path in move]
-    absolute_paths.extend(resolved_work_units)
+    absolute_paths.extend(resolved_work_units.values())
     try:
         opened = p4.run(p4.opened(*absolute_paths)).stdout.casefold()
     except (OSError, subprocess.CalledProcessError) as exc:
         issues.append(ValidationIssue("p4-opened-failed", str(exc)))
     else:
-        if "move/add" not in opened or "move/delete" not in opened:
+        if (
+            opened.count("move/add") < len(manifest.moves)
+            or opened.count("move/delete") < len(manifest.moves)
+        ):
             issues.append(
                 ValidationIssue(
                     "p4-move-missing",
                     "p4 opened does not show both move/add and move/delete",
                 )
             )
-        if " edit " not in opened:
+        if opened.count(" edit ") < len(resolved_work_units):
             issues.append(
                 ValidationIssue(
                     "p4-edit-missing", "p4 opened does not show the Work Unit as edit"
                 )
             )
 
-    for patched, work_unit in zip(manifest.patched_files, resolved_work_units):
+    for relative_path, work_unit in resolved_work_units.items():
         try:
             diff = p4.run(p4.diff(work_unit)).stdout
         except (OSError, subprocess.CalledProcessError) as exc:
             issues.append(ValidationIssue("p4-diff-failed", str(exc)))
             continue
-        if not _diff_contains_only_path_change(
-            diff, patched.old_xml_path, patched.new_xml_path
-        ):
+        changes = tuple(
+            (patched.old_xml_path, patched.new_xml_path)
+            for patched in manifest.patched_files
+            if patched.relative_path == relative_path
+        )
+        if not _diff_contains_only_path_changes(diff, changes):
             issues.append(
                 ValidationIssue(
                     "unsafe-p4-diff",
@@ -276,6 +291,12 @@ def validate_live_wwise_manifest_at_url(
 
 
 def _diff_contains_only_path_change(diff: str, old_path: str, new_path: str) -> bool:
+    return _diff_contains_only_path_changes(diff, ((old_path, new_path),))
+
+
+def _diff_contains_only_path_changes(
+    diff: str, changes: tuple[tuple[str, str], ...]
+) -> bool:
     removed = [
         line[1:]
         for line in diff.splitlines()
@@ -286,9 +307,18 @@ def _diff_contains_only_path_change(diff: str, old_path: str, new_path: str) -> 
         for line in diff.splitlines()
         if line.startswith("+") and not line.startswith("+++")
     ]
-    if len(removed) != 1 or len(added) != 1:
+    if len(removed) != len(changes) or len(added) != len(changes):
         return False
-    return old_path in removed[0] and removed[0].replace(old_path, new_path) == added[0]
+    unmatched_added = list(added)
+    for old_path, new_path in changes:
+        matching_removed = [line for line in removed if old_path in line]
+        if len(matching_removed) != 1:
+            return False
+        expected_added = matching_removed[0].replace(old_path, new_path)
+        if expected_added not in unmatched_added:
+            return False
+        unmatched_added.remove(expected_added)
+    return not unmatched_added
 
 
 def _canonical_source_path(value: str) -> str:

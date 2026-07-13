@@ -14,8 +14,8 @@ preserving both Wwise project integrity and Perforce history.
 
 ## Current status
 
-The current implementation provides planning and guarded single-file pilot
-execution:
+The current implementation provides planning, guarded single-file CLI pilot
+execution, and selected-file GUI execution:
 
 - parse `AudioFileSource` references from a `.wwu` file;
 - scan Wwise Sound and Audio File Source objects through WAAPI;
@@ -24,15 +24,15 @@ execution:
 - reject missing, multiple, shared, or ambiguous sources;
 - preflight filesystem and Perforce workspace state;
 - open the WWU and source WAV with `p4 edit`, then relocate through `p4 move`;
-- patch one GUID-scoped, exact WWU source path without XML reformatting;
+- patch one or more GUID-scoped, exact WWU source paths without XML reformatting;
 - write a rollback manifest before running any mutating Perforce command;
 - validate filesystem, WWU hash, Perforce move state, and the WWU diff;
 - validate Wwise GUID, object path, source path, and source existence via WAAPI;
 - roll back only the paths listed in the manifest;
 - exercise the behavior against a small fixture project.
 
-Batch apply, changelist submission, and Wwise import as a relocation mechanism
-are not implemented. The disposable-project bootstrap uses WwiseConsole import
+Changelist submission and Wwise import as a relocation mechanism are not
+implemented. The disposable-project bootstrap uses WwiseConsole import
 only to create its isolated test fixture.
 Planning commands remain read-only, and `apply` refuses to run unless `--only`
 selects exactly one safe move candidate.
@@ -41,9 +41,10 @@ For non-programmer operators, the primary distribution is a portable desktop
 GUI. It requires no Python installation on the target PC. It
 uses the existing Wwise Authoring and Perforce CLI setup, runs readiness checks,
 builds a relocation plan, and stores reports beside the application. After a
-valid plan, the GUI can apply exactly one selected WAV through the same guarded
-manifest-first contract as the CLI and can roll back only that manifest. It
-can also revalidate the applied file against the local filesystem, Perforce
+valid plan, the GUI can apply one or more selected WAVs through the same guarded
+manifest-first contract as the CLI. All selected items are preflighted before
+mutation, share one changelist and manifest, and are rolled back in reverse if
+any item fails. It can also revalidate the applied files against the local filesystem, Perforce
 opened/diff state, and the live Wwise object after the operator reloads External
 Project Changes. It never submits a changelist or installs production
 prerequisites. See the [portable GUI guide](docs/portable-gui.md) and its
@@ -64,7 +65,9 @@ rendering. It skips only Perforce CLI, workspace, and opened-file checks and
 keeps all mutation controls disabled.
 
 The repository also retains the CLI for developers and validation operators.
-Both surfaces share the same single-file apply and rollback implementation.
+Both surfaces share the same manifest-first apply and rollback engine. The CLI
+keeps its explicit single-file `--only` pilot interface; multi-selection is
+available through the portable GUI.
 
 The primary [Korean usage guide](docs/usage-guide.html) follows the portable
 GUI workflow for non-programmer operators. Developers and validation operators
@@ -241,7 +244,8 @@ python -m pytest
 - The tool will never submit a changelist.
 - Exact source-path matching is required before patching a `.wwu`.
 - Ambiguous or shared sources must stop automation and require review.
-- Batch apply is unavailable until a real single-file pilot is validated.
+- A selected-file batch must pass the complete preflight before mutation and
+  stops on the first failure with reverse rollback of already moved files.
 - Rollback manifests are mandatory for every apply operation.
 
 See [the development specification](docs/development-spec.md) for the planned

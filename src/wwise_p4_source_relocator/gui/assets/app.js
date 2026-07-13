@@ -4,7 +4,7 @@ const state = {
   busy: false,
   system: {},
   plan: null,
-  selectedItem: null,
+  selectedItems: [],
   activeOperation: null,
   operationHistory: null,
 };
@@ -231,7 +231,7 @@ function waapiReadinessMessage(result, check) {
 
 function renderPlan(result) {
   state.plan = result;
-  state.selectedItem = null;
+  state.selectedItems = [];
   const counts = result.counts || {};
   element('move-count').textContent = counts['move-and-patch'] || 0;
   element('skip-count').textContent = counts.skip || 0;
@@ -274,17 +274,22 @@ function selectionCell(item, result) {
     && result.validation?.valid
     && !result.offlineTestMode
     && !state.activeOperation;
-  const radio = document.createElement('input');
-  radio.type = 'radio';
-  radio.name = 'apply-source';
-  radio.className = 'row-selector';
-  radio.disabled = !selectable;
-  radio.setAttribute('aria-label', `${item.sourceFileName || item.objectPath} 선택`);
-  radio.addEventListener('change', () => {
-    state.selectedItem = item;
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.className = 'row-selector';
+  checkbox.disabled = !selectable;
+  checkbox.setAttribute('aria-label', `${item.sourceFileName || item.objectPath} 선택`);
+  checkbox.addEventListener('change', () => {
+    if (checkbox.checked) {
+      state.selectedItems.push(item);
+    } else {
+      state.selectedItems = state.selectedItems.filter(
+        (selected) => selected.sourceFileName !== item.sourceFileName,
+      );
+    }
     renderApplySelection();
   });
-  cell.append(radio);
+  cell.append(checkbox);
   return cell;
 }
 
@@ -293,15 +298,18 @@ function renderApplySelection() {
     renderActiveOperation(state.activeOperation);
     return;
   }
-  const selected = state.selectedItem;
+  const selected = state.selectedItems;
+  const hasSelection = selected.length > 0;
   element('active-operation').hidden = true;
-  element('apply-controls').hidden = !selected;
-  element('apply-empty').hidden = Boolean(selected);
-  element('apply-state').textContent = selected ? '1개 선택됨' : '계획 필요';
-  element('apply-state').className = `panel-state ${selected ? 'ready' : 'neutral'}`;
-  if (selected) {
-    element('selected-file').textContent = selected.sourceFileName;
-    element('selected-move').textContent = `${selected.from} → ${selected.to}`;
+  element('apply-controls').hidden = !hasSelection;
+  element('apply-empty').hidden = hasSelection;
+  element('apply-state').textContent = hasSelection ? `${selected.length}개 선택됨` : '계획 필요';
+  element('apply-state').className = `panel-state ${hasSelection ? 'ready' : 'neutral'}`;
+  if (hasSelection) {
+    element('selected-file').textContent = selected.map((item) => item.sourceFileName).join(', ');
+    element('selected-move').textContent = selected.length === 1
+      ? `${selected[0].from} → ${selected[0].to}`
+      : `${selected.length}개 WAV를 같은 changelist에서 이동`;
     setStep('apply', 'active');
   }
   updateApplyButtons();
@@ -323,7 +331,9 @@ function renderActiveOperation(operation) {
     : '계획 필요';
   element('apply-state').className = `panel-state ${active ? (validated && !handedOff ? 'ready' : 'warning') : 'neutral'}`;
   if (active) {
-    element('active-file').textContent = operation.sourceFileName;
+    element('active-file').textContent = (
+      operation.sourceFileNames || [operation.sourceFileName]
+    ).join(', ');
     element('active-move').textContent = `${operation.from} → ${operation.to}`;
     element('apply-report').textContent = `Rollback manifest: ${operation.manifest}`;
     element('apply-report').hidden = false;
@@ -531,7 +541,7 @@ function updateApplyButtons() {
     applyButton.disabled = state.busy
       || !state.bridgeReady
       || offline
-      || !state.selectedItem
+      || state.selectedItems.length === 0
       || Boolean(state.activeOperation);
   }
   if (rollbackButton) {
@@ -668,20 +678,22 @@ async function runPlan() {
 }
 
 async function runApply() {
-  const item = state.selectedItem;
-  if (!item) return;
+  const items = state.selectedItems;
+  if (!items.length) return;
+  const names = items.map((item) => item.sourceFileName);
+  const confirmationToken = names.join('\n');
   const accepted = window.confirm(
-    `${item.sourceFileName}\n\n이 WAV 한 개를 Perforce move하고 Work Unit 경로를 변경합니다.\n이 프로그램은 submit하지 않습니다. 계속할까요?`,
+    `${names.join('\n')}\n\n선택한 WAV ${items.length}개를 같은 changelist에서 Perforce move하고 Work Unit 경로를 변경합니다.\n하나라도 실패하면 이미 적용한 항목을 자동으로 복구합니다. 이 프로그램은 submit하지 않습니다. 계속할까요?`,
   );
   if (!accepted) return;
   clearError();
-  setBusy(true, `${item.sourceFileName}을 적용하고 있습니다…`);
+  setBusy(true, `선택한 파일 ${items.length}개를 적용하고 있습니다…`);
   try {
     const result = await invoke(
       'run_apply',
       settingsFromForm(),
-      item.sourceFileName,
-      item.sourceFileName,
+      names,
+      confirmationToken,
     );
     if (!result.applied) {
       if (result.activeOperation) renderActiveOperation(result.activeOperation);
@@ -692,7 +704,7 @@ async function runApply() {
     }
     renderActiveOperation(result.activeOperation);
     await refreshOperationHistory({reportErrors: false});
-    setBusy(false, '한 파일을 적용했습니다. Wwise에서 외부 변경을 다시 불러오세요');
+    setBusy(false, `${items.length}개 파일을 적용했습니다. Wwise에서 외부 변경을 다시 불러오세요`);
   } catch (error) {
     setBusy(false);
     showError(error.message);
@@ -712,7 +724,7 @@ async function runRollback() {
     const result = await invoke(
       'run_rollback',
       settingsFromForm(),
-      operation.sourceFileName,
+      operation.confirmationToken || operation.sourceFileName,
     );
     if (!result.rolledBack) {
       renderActiveOperation(result.activeOperation || operation);
@@ -763,7 +775,7 @@ async function runHandoffApply() {
     const result = await invoke(
       'run_handoff_apply',
       settingsFromForm(),
-      operation.sourceFileName,
+      operation.confirmationToken || operation.sourceFileName,
     );
     if (!result.handedOff) {
       renderActiveOperation(result.activeOperation || operation);
@@ -858,7 +870,7 @@ function resetResults() {
   element('plan-report').hidden = true;
   element('offline-result-note').hidden = true;
   state.plan = null;
-  state.selectedItem = null;
+  state.selectedItems = [];
   if (!state.activeOperation) {
     element('apply-controls').hidden = true;
     element('apply-empty').hidden = false;

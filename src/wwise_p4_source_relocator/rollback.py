@@ -20,19 +20,19 @@ def rollback_manifest(
     issues: list[ValidationIssue] = []
 
     if (
-        len(manifest.moves) != 1
-        or len(manifest.patched_files) != 1
-        or len(manifest.affected_objects) != 1
+        not manifest.moves
+        or len(manifest.moves) != len(manifest.patched_files)
+        or len(manifest.moves) != len(manifest.affected_objects)
     ):
         return _record_failed_manifest(
             manifest,
             manifest_path,
             ValidationIssue(
                 "manifest-scope",
-                "Rollback manifest must describe exactly one move, patch, and object",
+                "Rollback manifest must describe matching moves, patches, and objects",
             ),
         )
-    allowed_unmanaged = {manifest.moves[0].to_relative_path}
+    allowed_unmanaged = {move.to_relative_path for move in manifest.moves}
     if not set(manifest.unmanaged_files_to_delete).issubset(allowed_unmanaged):
         return _record_failed_manifest(
             manifest,
@@ -51,10 +51,10 @@ def rollback_manifest(
             )
             for move in manifest.moves
         ]
-        resolved_work_units = [
-            resolve_project_path(root, patched.relative_path)
+        resolved_work_units = {
+            patched.relative_path: resolve_project_path(root, patched.relative_path)
             for patched in manifest.patched_files
-        ]
+        }
         unmanaged_files = [
             resolve_project_path(root, relative_path)
             for relative_path in manifest.unmanaged_files_to_delete
@@ -66,13 +66,13 @@ def rollback_manifest(
             ValidationIssue("outside-project", str(exc)),
         )
 
-    for source, target in resolved_moves:
+    for source, target in reversed(resolved_moves):
         try:
             p4.run(p4.revert(source, target, changelist=manifest.changelist))
         except (OSError, subprocess.CalledProcessError) as exc:
             issues.append(ValidationIssue("p4-revert-move-failed", str(exc)))
 
-    for work_unit in resolved_work_units:
+    for work_unit in resolved_work_units.values():
         try:
             p4.run(p4.revert(work_unit, changelist=manifest.changelist))
         except (OSError, subprocess.CalledProcessError) as exc:
@@ -101,7 +101,12 @@ def rollback_manifest(
                 )
             )
 
-    for patched, work_unit in zip(manifest.patched_files, resolved_work_units):
+    checked_work_units: set[str] = set()
+    for patched in manifest.patched_files:
+        if patched.relative_path in checked_work_units:
+            continue
+        checked_work_units.add(patched.relative_path)
+        work_unit = resolved_work_units[patched.relative_path]
         if not work_unit.is_file():
             issues.append(
                 ValidationIssue(
@@ -110,7 +115,12 @@ def rollback_manifest(
             )
             continue
         digest = hashlib.sha256(work_unit.read_bytes()).hexdigest()
-        if digest != patched.original_sha256:
+        expected_hashes = {
+            record.original_sha256
+            for record in manifest.patched_files
+            if record.relative_path == patched.relative_path
+        }
+        if len(expected_hashes) != 1 or digest not in expected_hashes:
             issues.append(
                 ValidationIssue(
                     "rollback-wwu-mismatch",

@@ -66,6 +66,27 @@ def scan(**values: object) -> ScanResult:
     )
 
 
+def scan_two(**values: object) -> ScanResult:
+    first = scan(**values).items[0]
+    second = SourceItem(
+        object_path=r"\Containers\Default Work Unit\VO\Script\CH04\line_two",
+        guid="{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}",
+        category="Script",
+        source_relative_paths=(
+            "Originals/Voices/English(US)/Scenario/CH04/line_two.wav",
+        ),
+        work_unit_path="Actor-Mixer Hierarchy/Default Work Unit.wwu",
+        language="English(US)",
+        chapter="CH04",
+    )
+    return ScanResult(
+        project_root=Path(str(values["project_root"])),
+        object_root=str(values["object_root"]),
+        chapter=str(values["chapter"]),
+        items=(first, second),
+    )
+
+
 def validate(*_: object, **__: object) -> ValidationResult:
     return ValidationResult(())
 
@@ -75,13 +96,21 @@ def failing_scan(**_: object) -> ScanResult:
 
 
 def fake_apply(plan, **values: object):
-    item = plan.items[0]
+    selected_names = values.get("only")
+    if isinstance(selected_names, str):
+        selected_names = (selected_names,)
+    selected = [
+        item for item in plan.items if item.source_file_name in selected_names
+    ]
     manifest = RollbackManifest(
         created_at="2026-07-13T00:00:00+00:00",
         project_root=plan.project_root,
         changelist=values["changelist"],
-        moves=(MoveRecord(item.from_relative_path, item.to_relative_path),),
-        patched_files=(
+        moves=tuple(
+            MoveRecord(item.from_relative_path, item.to_relative_path)
+            for item in selected
+        ),
+        patched_files=tuple(
             PatchedFileRecord(
                 relative_path=item.work_unit_path,
                 object_guid=item.guid,
@@ -89,15 +118,17 @@ def fake_apply(plan, **values: object):
                 new_xml_path="new.wav",
                 original_sha256="a" * 64,
                 patched_sha256="b" * 64,
-            ),
+            )
+            for item in selected
         ),
-        affected_objects=(
+        affected_objects=tuple(
             AffectedObjectRecord(
                 object_path=item.object_path,
                 guid=item.guid,
                 before_source_relative_path=item.from_relative_path,
                 after_source_relative_path=item.to_relative_path,
-            ),
+            )
+            for item in selected
         ),
         unmanaged_files_to_delete=(),
         status="applied",
@@ -339,6 +370,42 @@ class PortableGuiServiceTests(unittest.TestCase):
 
             self.assertTrue(rolled_back["rolledBack"])
             self.assertIsNone(rolled_back["activeOperation"])
+            self.assertIsNone(service.initial_state()["activeOperation"])
+
+    def test_gui_applies_multiple_selected_files_as_one_operation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(
+                root / "data",
+                scanner=scan_two,
+                applier=fake_apply,
+                rollbacker=fake_rollback,
+                p4_client_factory=lambda _: object(),
+                workspace_probe_factory=lambda _: object(),
+            )
+            settings = self.settings(project_root)
+            service.run_plan(settings)
+            selected = ("line.wav", "line_two.wav")
+
+            applied = service.run_apply(
+                settings,
+                list(selected),
+                "\n".join(selected),
+            )
+
+            operation = applied["activeOperation"]
+            self.assertEqual(2, operation["fileCount"])
+            self.assertEqual(list(selected), operation["sourceFileNames"])
+            self.assertEqual(2, len(operation["moves"]))
+
+            rolled_back = service.run_rollback(
+                settings,
+                operation["confirmationToken"],
+            )
+
+            self.assertTrue(rolled_back["rolledBack"])
             self.assertIsNone(service.initial_state()["activeOperation"])
 
     def test_gui_validates_applied_file_against_perforce_and_live_wwise(self) -> None:

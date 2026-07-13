@@ -85,13 +85,13 @@ class GuiApi:
     def run_apply(
         self,
         values: Mapping[str, object],
-        source_file_name: str,
+        source_file_names: object,
         confirmation: str,
     ) -> dict[str, object]:
         return self._invoke_exclusive(
             self.service.run_apply,
             values,
-            source_file_name,
+            source_file_names,
             confirmation,
         )
 

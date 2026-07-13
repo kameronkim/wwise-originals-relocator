@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="Wwise Originals Relocator portable desktop interface">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="styles.css?v=8">
+  <link rel="stylesheet" href="styles.css?v=9">
   <title>Wwise Originals Relocator</title>
 </head>
 <body>
@@ -21,7 +21,7 @@
         </div>
       </div>
       <div class="header-status">
-        <span class="mode-badge">단일 파일 안전 적용</span>
+        <span class="mode-badge">선택 파일 안전 적용</span>
         <span id="bridge-status" class="connection-badge pending">앱 연결 확인 중</span>
       </div>
     </header>
@@ -33,7 +33,7 @@
           <li class="active" data-step="project"><span>1</span><div><strong>프로젝트</strong><small>Wwise 폴더 선택</small></div></li>
           <li data-step="doctor"><span>2</span><div><strong>환경 확인</strong><small id="doctor-step-detail">Wwise · P4 · WAAPI</small></div></li>
           <li data-step="plan"><span>3</span><div><strong>이동 계획</strong><small>변경 전 검토</small></div></li>
-          <li data-step="apply"><span>4</span><div><strong>적용 · 복구</strong><small>한 번에 한 파일</small></div></li>
+          <li data-step="apply"><span>4</span><div><strong>적용 · 복구</strong><small>선택한 파일 묶음</small></div></li>
         </ol>
 
       </aside>
@@ -149,7 +149,7 @@
             </div>
             <button id="run-plan" class="primary-button" type="button" disabled>이동 계획 만들기</button>
           </div>
-          <p class="panel-description">Wwise에서 source를 읽고 제안 경로를 표시합니다. 적용할 파일은 검증을 통과한 항목 중 하나만 선택할 수 있습니다.</p>
+          <p class="panel-description">Wwise에서 source를 읽고 제안 경로를 표시합니다. 검증을 통과한 이동 가능 항목은 여러 개 선택할 수 있습니다.</p>
           <div id="offline-result-note" class="offline-result-note" hidden>
             로컬 테스트 결과입니다. 파일 경로는 검증하지만 Perforce workspace와 opened 상태는 확인하지 않습니다.
           </div>
@@ -183,15 +183,15 @@
           <div class="panel-heading">
             <div>
               <span class="step-number">04</span>
-              <h2 id="apply-title">단일 파일 적용 및 복구</h2>
+              <h2 id="apply-title">선택한 파일 적용 및 복구</h2>
             </div>
             <span id="apply-state" class="panel-state neutral">계획 필요</span>
           </div>
-          <p class="panel-description">선택한 WAV 하나만 <code>p4 move</code>하고 해당 Work Unit의 source 경로만 변경합니다. 이 프로그램은 submit을 실행하지 않습니다.</p>
+          <p class="panel-description">선택한 WAV를 같은 changelist에서 <code>p4 move</code>하고 해당 Work Unit의 source 경로만 변경합니다. 하나라도 실패하면 이미 적용한 항목을 역순 복구하며, 이 프로그램은 submit을 실행하지 않습니다.</p>
 
           <div id="apply-empty" class="empty-state compact-empty">
-            <span aria-hidden="true">1</span>
-            <p>검증된 이동 계획에서 파일 하나를 선택하세요.</p>
+            <span aria-hidden="true">✓</span>
+            <p>검증된 이동 계획에서 적용할 파일을 하나 이상 선택하세요.</p>
           </div>
 
           <div id="apply-controls" class="apply-controls" hidden>
@@ -204,12 +204,12 @@
               <strong>적용 전 확인</strong>
               <span>Wwise 저장을 마치고, P4V에서 올바른 workspace와 changelist를 사용 중인지 확인하세요.</span>
             </div>
-            <button id="run-apply" class="primary-button danger-action" type="button" disabled>선택한 파일 적용</button>
+            <button id="run-apply" class="primary-button danger-action" type="button" disabled>선택한 파일 모두 적용</button>
           </div>
 
           <div id="active-operation" class="active-operation" hidden>
             <div>
-              <small>현재 적용된 파일</small>
+              <small>현재 적용된 파일 묶음</small>
               <strong id="active-file">—</strong>
               <p id="active-move">—</p>
             </div>
@@ -222,7 +222,7 @@
               <button id="run-validate-apply" class="primary-button validate-apply-button" type="button">Wwise 반영 확인</button>
               <button id="run-handoff-apply" class="primary-button handoff-button" type="button" hidden>P4V로 인계</button>
               <button id="run-check-handoff" class="primary-button handoff-button" type="button" hidden>P4V 마감 상태 확인</button>
-              <button id="run-rollback" class="secondary-button rollback-button" type="button">이 파일 Rollback</button>
+              <button id="run-rollback" class="secondary-button rollback-button" type="button">이 작업 Rollback</button>
             </div>
           </div>
           <div id="apply-validation-result" class="apply-validation-result" hidden>
@@ -241,7 +241,7 @@
             </div>
             <button id="refresh-history" class="secondary-button history-refresh-button" type="button">새로고침</button>
           </div>
-          <p class="panel-description">현재 프로젝트에서 실행한 최근 단일 파일 작업과 검증 보고서를 읽기 전용으로 보여줍니다.</p>
+          <p class="panel-description">현재 프로젝트에서 실행한 최근 파일 작업과 검증 보고서를 읽기 전용으로 보여줍니다.</p>
           <div id="history-empty" class="empty-state compact-empty">
             <span aria-hidden="true">↺</span>
             <p>프로젝트를 선택하면 이 앱에서 만든 작업 기록을 확인할 수 있습니다.</p>
@@ -260,6 +260,6 @@
       <span id="app-version">v—</span>
     </footer>
   </div>
-  <script src="app.js?v=8"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>

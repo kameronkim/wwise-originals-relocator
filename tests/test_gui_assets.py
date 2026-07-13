@@ -20,7 +20,7 @@ class GuiAssetTests(unittest.TestCase):
         self.assertTrue((ASSET_ROOT / "styles.css").is_file())
         self.assertTrue((ASSET_ROOT / "app.js").is_file())
 
-    def test_gui_exposes_guarded_single_file_apply_and_rollback(self) -> None:
+    def test_gui_exposes_guarded_selected_file_apply_and_rollback(self) -> None:
         index = (ASSET_ROOT / "index.html").read_text(encoding="utf-8")
         script = (ASSET_ROOT / "app.js").read_text(encoding="utf-8")
         styles = (ASSET_ROOT / "styles.css").read_text(encoding="utf-8")
@@ -38,7 +38,9 @@ class GuiAssetTests(unittest.TestCase):
         self.assertIn("'run_check_handoff'", script)
         self.assertIn("'get_operation_history'", script)
         self.assertIn("최근 작업 기록", index)
-        self.assertIn("한 번에 한 파일", index)
+        self.assertIn("선택한 파일 묶음", index)
+        self.assertIn("checkbox", script)
+        self.assertIn("하나라도 실패하면", index)
         self.assertIn("이 프로그램은 submit을 실행하지 않습니다", index)
         self.assertIn("확인 내용", index)
         self.assertIn("validation-issues", index)

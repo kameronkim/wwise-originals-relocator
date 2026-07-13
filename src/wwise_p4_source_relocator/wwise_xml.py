@@ -20,12 +20,26 @@ class WwuPatchError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class PreparedSourcePathChange:
+    object_guid: str
+    old_xml_path: str
+    new_xml_path: str
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedWwuPatch:
     original_bytes: bytes
     patched_bytes: bytes
-    old_xml_path: str
-    new_xml_path: str
+    changes: tuple[PreparedSourcePathChange, ...]
     encoding: str
+
+    @property
+    def old_xml_path(self) -> str:
+        return self.changes[0].old_xml_path
+
+    @property
+    def new_xml_path(self) -> str:
+        return self.changes[0].new_xml_path
 
     @property
     def original_sha256(self) -> str:
@@ -124,6 +138,22 @@ def prepare_source_path_patch(
 ) -> PreparedWwuPatch:
     """Prepare one exact text replacement without serializing the XML tree."""
 
+    return prepare_source_path_patches(
+        wwu_path,
+        changes=((object_guid, old_relative_path, new_relative_path),),
+    )
+
+
+def prepare_source_path_patches(
+    wwu_path: str | Path,
+    *,
+    changes: tuple[tuple[str, str, str], ...],
+) -> PreparedWwuPatch:
+    """Prepare identity-scoped replacements as one atomic Work Unit patch."""
+
+    if not changes:
+        raise WwuPatchError("At least one source path change is required")
+
     path = Path(wwu_path)
     try:
         original = path.read_bytes()
@@ -137,39 +167,51 @@ def prepare_source_path_patch(
     except (UnicodeError, ElementTree.ParseError) as exc:
         raise WwuPatchError(f"Unable to decode Wwise work unit {path}: {exc}") from exc
 
-    sounds = [
-        node
-        for node in root.iter()
-        if _local_name(node.tag) == "Sound"
-        and node.get("ID", "").casefold() == object_guid.casefold()
-    ]
-    if len(sounds) != 1:
-        raise WwuPatchError(
-            f"Expected one Sound with GUID {object_guid}, found {len(sounds)}"
-        )
+    prepared_changes: list[PreparedSourcePathChange] = []
+    patched_text = text
+    seen_guids: set[str] = set()
+    for object_guid, old_relative_path, new_relative_path in changes:
+        normalized_guid = object_guid.casefold()
+        if normalized_guid in seen_guids:
+            raise WwuPatchError(
+                f"Sound GUID {object_guid} was selected more than once"
+            )
+        seen_guids.add(normalized_guid)
+        sounds = [
+            node
+            for node in root.iter()
+            if _local_name(node.tag) == "Sound"
+            and node.get("ID", "").casefold() == normalized_guid
+        ]
+        if len(sounds) != 1:
+            raise WwuPatchError(
+                f"Expected one Sound with GUID {object_guid}, found {len(sounds)}"
+            )
 
-    matches = [
-        node
-        for node in _children_named(sounds[0], "AudioFile")
-        if node.text
-        and _source_paths_equivalent(node.text, old_relative_path)
-    ]
-    if len(matches) != 1:
-        raise WwuPatchError(
-            "Expected one exact AudioFile path under the target Sound, "
-            f"found {len(matches)}"
-        )
+        matches = [
+            node
+            for node in _children_named(sounds[0], "AudioFile")
+            if node.text
+            and _source_paths_equivalent(node.text, old_relative_path)
+        ]
+        if len(matches) != 1:
+            raise WwuPatchError(
+                "Expected one exact AudioFile path under the target Sound, "
+                f"found {len(matches)}"
+            )
 
-    old_xml_path = matches[0].text.strip()
-    new_xml_path = _match_wwu_path_style(old_xml_path, new_relative_path)
-    escaped_old = escape(old_xml_path)
-    escaped_new = escape(new_xml_path)
-    if text.count(escaped_old) != 1:
-        raise WwuPatchError(
-            "The exact source path appears more than once in the Work Unit"
+        old_xml_path = matches[0].text.strip()
+        new_xml_path = _match_wwu_path_style(old_xml_path, new_relative_path)
+        escaped_old = escape(old_xml_path)
+        escaped_new = escape(new_xml_path)
+        if patched_text.count(escaped_old) != 1:
+            raise WwuPatchError(
+                "The exact source path appears more than once in the Work Unit"
+            )
+        patched_text = patched_text.replace(escaped_old, escaped_new, 1)
+        prepared_changes.append(
+            PreparedSourcePathChange(object_guid, old_xml_path, new_xml_path)
         )
-
-    patched_text = text.replace(escaped_old, escaped_new, 1)
     try:
         patched = patched_text.encode(encoding)
         ElementTree.fromstring(patched)
@@ -179,8 +221,7 @@ def prepare_source_path_patch(
     return PreparedWwuPatch(
         original_bytes=original,
         patched_bytes=patched,
-        old_xml_path=old_xml_path,
-        new_xml_path=new_xml_path,
+        changes=tuple(prepared_changes),
         encoding=encoding,
     )
 

@@ -11,7 +11,7 @@ import shutil
 import sys
 
 from .. import __version__
-from ..applier import ApplyError, apply_single_file
+from ..applier import ApplyError, apply_selected_files
 from ..models import (
     RelocationPlan,
     RollbackManifest,
@@ -110,7 +110,7 @@ class PortableGuiService:
         plan_validator: Callable[..., ValidationResult] = validate_relocation_plan,
         applier: Callable[
             ..., tuple[RollbackManifest, ValidationResult]
-        ] = apply_single_file,
+        ] = apply_selected_files,
         applied_validator: Callable[
             ..., ValidationResult
         ] = validate_applied_manifest,
@@ -323,7 +323,7 @@ class PortableGuiService:
     def run_apply(
         self,
         values: Mapping[str, object],
-        source_file_name: str,
+        source_file_names: object,
         confirmation: str,
     ) -> dict[str, object]:
         settings = self.store.save(values)
@@ -332,9 +332,9 @@ class PortableGuiService:
             raise GuiServiceError(
                 "Perforce 없는 로컬 테스트에서는 파일을 적용할 수 없습니다."
             )
-        selected = source_file_name.strip()
-        if not selected or confirmation != selected:
-            raise GuiServiceError("선택한 파일 확인이 일치하지 않습니다.")
+        selected = _selected_file_names(source_file_names)
+        if not selected or confirmation != _confirmation_token(selected):
+            raise GuiServiceError("선택한 파일 목록 확인이 일치하지 않습니다.")
         if self._planned_plan is None or self._planned_validation is None:
             raise GuiServiceError(
                 "이동 계획을 다시 만든 뒤 파일을 적용해 주세요."
@@ -352,7 +352,7 @@ class PortableGuiService:
         active = self._active_manifests(project_root)
         if active:
             raise GuiServiceError(
-                "아직 복구되지 않은 단일 파일 작업이 있습니다. 먼저 "
+                "아직 복구되지 않은 파일 작업이 있습니다. 먼저 "
                 "Rollback을 완료해 주세요."
             )
 
@@ -418,7 +418,7 @@ class PortableGuiService:
         active = self._active_manifests(project_root)
         if len(active) != 1:
             raise GuiServiceError(
-                "검증 가능한 단일 파일 manifest를 정확히 하나 찾을 수 없습니다."
+                "검증 가능한 작업 manifest를 정확히 하나 찾을 수 없습니다."
             )
         manifest_path, manifest = active[0]
         if manifest.status != "applied":
@@ -482,14 +482,13 @@ class PortableGuiService:
         active = self._active_manifests(project_root)
         if len(active) != 1:
             raise GuiServiceError(
-                "P4V로 인계할 단일 파일 manifest를 정확히 하나 찾을 수 없습니다."
+                "P4V로 인계할 작업 manifest를 정확히 하나 찾을 수 없습니다."
             )
         manifest_path, manifest = active[0]
         if manifest.status != "applied":
             raise GuiServiceError("현재 작업은 P4V 인계 단계가 아닙니다.")
-        source_file_name = Path(manifest.moves[0].to_relative_path).name
-        if confirmation != source_file_name:
-            raise GuiServiceError("P4V 인계 파일 확인이 일치하지 않습니다.")
+        if confirmation != _manifest_confirmation_token(manifest):
+            raise GuiServiceError("P4V 인계 파일 목록 확인이 일치하지 않습니다.")
 
         validation = self.run_validate_apply(settings)
         if not validation["valid"]:
@@ -524,21 +523,21 @@ class PortableGuiService:
         active = self._active_manifests(project_root)
         if len(active) != 1:
             raise GuiServiceError(
-                "마감 상태를 확인할 단일 파일 manifest를 정확히 하나 찾을 수 없습니다."
+                "마감 상태를 확인할 작업 manifest를 정확히 하나 찾을 수 없습니다."
             )
         manifest_path, manifest = active[0]
         if manifest.status != "handed-off":
             raise GuiServiceError("먼저 검증 완료 작업을 P4V로 인계해 주세요.")
 
         try:
-            source, target, work_unit = _manifest_operation_paths(manifest)
+            operation_paths = _manifest_operation_paths(manifest)
         except UnsafeProjectPath as exc:
             raise GuiServiceError(str(exc)) from exc
         probe = self._workspace_probe_factory(_p4_executable(settings))
         try:
             opened_paths = [
                 path
-                for path in (source, target, work_unit)
+                for path in operation_paths
                 if probe.is_opened(path)
             ]
         except OSError as exc:
@@ -552,17 +551,17 @@ class PortableGuiService:
                 "activeOperation": _manifest_summary(manifest_path, manifest),
             }
 
-        patched = manifest.patched_files[0]
-        work_unit_hash = (
-            hashlib.sha256(work_unit.read_bytes()).hexdigest()
-            if work_unit.is_file()
-            else None
+        move_paths, work_units = _resolved_manifest_state(manifest)
+        rolled_back_files = all(
+            source.is_file() and not target.exists()
+            for source, target in move_paths
         )
-        if (
-            source.is_file()
-            and not target.exists()
-            and work_unit_hash == patched.original_sha256
-        ):
+        rolled_back_work_units = all(
+            path.is_file()
+            and hashlib.sha256(path.read_bytes()).hexdigest() == original_hash
+            for path, original_hash, _ in work_units
+        )
+        if rolled_back_files and rolled_back_work_units:
             rolled_back = manifest.with_status("rolled-back")
             write_json_document(rolled_back, manifest_path)
             self._clear_planned_state()
@@ -572,11 +571,16 @@ class PortableGuiService:
                 "requiresWwiseReload": True,
                 "activeOperation": None,
             }
-        if (
-            source.exists()
-            or not target.is_file()
-            or work_unit_hash != patched.patched_sha256
-        ):
+        applied_files = all(
+            not source.exists() and target.is_file()
+            for source, target in move_paths
+        )
+        applied_work_units = all(
+            path.is_file()
+            and hashlib.sha256(path.read_bytes()).hexdigest() == patched_hash
+            for path, _, patched_hash in work_units
+        )
+        if not applied_files or not applied_work_units:
             raise GuiServiceError(
                 "Perforce opened 상태는 정리되었지만 WAV 또는 Work Unit이 manifest와 "
                 "일치하지 않습니다. P4V 상태와 보고서를 운영 담당자에게 전달해 주세요."
@@ -627,13 +631,12 @@ class PortableGuiService:
         active = self._active_manifests(project_root)
         if len(active) != 1:
             raise GuiServiceError(
-                "Rollback 가능한 단일 파일 manifest를 정확히 하나 "
+                "Rollback 가능한 작업 manifest를 정확히 하나 "
                 "찾을 수 없습니다."
             )
         manifest_path, manifest = active[0]
-        source_file_name = Path(manifest.moves[0].to_relative_path).name
-        if confirmation != source_file_name:
-            raise GuiServiceError("Rollback 파일 확인이 일치하지 않습니다.")
+        if confirmation != _manifest_confirmation_token(manifest):
+            raise GuiServiceError("Rollback 파일 목록 확인이 일치하지 않습니다.")
         if manifest.status == "handed-off":
             try:
                 operation_paths = _manifest_operation_paths(manifest)
@@ -688,9 +691,9 @@ class PortableGuiService:
                 continue
             if (
                 manifest.status in {"applied", "handed-off", "failed"}
-                and len(manifest.moves) == 1
-                and len(manifest.patched_files) == 1
-                and len(manifest.affected_objects) == 1
+                and len(manifest.moves) >= 1
+                and len(manifest.moves) == len(manifest.patched_files)
+                and len(manifest.moves) == len(manifest.affected_objects)
                 and manifest.project_root.resolve() == project_root.resolve()
             ):
                 active.append((path.resolve(), manifest))
@@ -729,9 +732,9 @@ class PortableGuiService:
             if manifest.project_root.resolve() != project_root:
                 continue
             if (
-                len(manifest.moves) != 1
-                or len(manifest.patched_files) != 1
-                or len(manifest.affected_objects) != 1
+                not manifest.moves
+                or len(manifest.moves) != len(manifest.patched_files)
+                or len(manifest.moves) != len(manifest.affected_objects)
             ):
                 unreadable_count += 1
                 continue
@@ -871,13 +874,29 @@ def _live_p4_client(executable: str) -> P4Client:
 def _manifest_summary(
     manifest_path: Path, manifest: RollbackManifest
 ) -> dict[str, object]:
-    move = manifest.moves[0]
-    affected = manifest.affected_objects[0]
+    moves = [
+        {
+            "sourceFileName": Path(move.to_relative_path).name,
+            "from": move.from_relative_path,
+            "to": move.to_relative_path,
+            "objectPath": affected.object_path,
+        }
+        for move, affected in zip(manifest.moves, manifest.affected_objects)
+    ]
+    source_file_names = [str(move["sourceFileName"]) for move in moves]
+    first = moves[0]
+    count = len(moves)
     return {
-        "sourceFileName": Path(move.to_relative_path).name,
-        "from": move.from_relative_path,
-        "to": move.to_relative_path,
-        "objectPath": affected.object_path,
+        "sourceFileName": (
+            source_file_names[0] if count == 1 else f"{count}개 파일"
+        ),
+        "sourceFileNames": source_file_names,
+        "fileCount": count,
+        "confirmationToken": _confirmation_token(source_file_names),
+        "from": first["from"] if count == 1 else f"{count}개 원본 경로",
+        "to": first["to"] if count == 1 else f"{count}개 대상 경로",
+        "objectPath": first["objectPath"] if count == 1 else f"{count}개 Wwise 객체",
+        "moves": moves,
         "changelist": manifest.changelist,
         "status": manifest.status,
         "validated": (
@@ -937,14 +956,83 @@ def _read_apply_verification(manifest_path: Path) -> dict[str, object] | None:
 
 def _manifest_operation_paths(
     manifest: RollbackManifest,
-) -> tuple[Path, Path, Path]:
+) -> tuple[Path, ...]:
     root = manifest.project_root.resolve()
-    move = manifest.moves[0]
-    patched = manifest.patched_files[0]
-    return (
-        resolve_project_path(root, move.from_relative_path),
-        resolve_project_path(root, move.to_relative_path),
-        resolve_project_path(root, patched.relative_path),
+    paths = [
+        path
+        for move in manifest.moves
+        for path in (
+            resolve_project_path(root, move.from_relative_path),
+            resolve_project_path(root, move.to_relative_path),
+        )
+    ]
+    paths.extend(
+        resolve_project_path(root, relative_path)
+        for relative_path in dict.fromkeys(
+            patched.relative_path for patched in manifest.patched_files
+        )
+    )
+    return tuple(paths)
+
+
+def _resolved_manifest_state(
+    manifest: RollbackManifest,
+) -> tuple[list[tuple[Path, Path]], list[tuple[Path, str, str]]]:
+    root = manifest.project_root.resolve()
+    move_paths = [
+        (
+            resolve_project_path(root, move.from_relative_path),
+            resolve_project_path(root, move.to_relative_path),
+        )
+        for move in manifest.moves
+    ]
+    work_units: list[tuple[Path, str, str]] = []
+    for relative_path in dict.fromkeys(
+        patched.relative_path for patched in manifest.patched_files
+    ):
+        records = [
+            patched
+            for patched in manifest.patched_files
+            if patched.relative_path == relative_path
+        ]
+        original_hashes = {record.original_sha256 for record in records}
+        patched_hashes = {record.patched_sha256 for record in records}
+        if len(original_hashes) != 1 or len(patched_hashes) != 1:
+            raise GuiServiceError(
+                f"Work Unit hash records are inconsistent: {relative_path}"
+            )
+        work_units.append(
+            (
+                resolve_project_path(root, relative_path),
+                next(iter(original_hashes)),
+                next(iter(patched_hashes)),
+            )
+        )
+    return move_paths, work_units
+
+
+def _selected_file_names(value: object) -> tuple[str, ...]:
+    if isinstance(value, str):
+        candidates = (value,)
+    elif isinstance(value, (list, tuple)) and all(
+        isinstance(item, str) for item in value
+    ):
+        candidates = tuple(value)
+    else:
+        raise GuiServiceError("선택한 파일 목록 형식이 올바르지 않습니다.")
+    selected = tuple(item.strip() for item in candidates if item.strip())
+    if len({item.casefold() for item in selected}) != len(selected):
+        raise GuiServiceError("같은 파일을 두 번 선택할 수 없습니다.")
+    return selected
+
+
+def _confirmation_token(source_file_names: object) -> str:
+    return "\n".join(str(name) for name in source_file_names)
+
+
+def _manifest_confirmation_token(manifest: RollbackManifest) -> str:
+    return _confirmation_token(
+        Path(move.to_relative_path).name for move in manifest.moves
     )
 
 

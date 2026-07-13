@@ -7,7 +7,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from wwise_p4_source_relocator.applier import ApplyError, apply_single_file
+from wwise_p4_source_relocator.applier import (
+    ApplyError,
+    apply_selected_files,
+    apply_single_file,
+)
 from wwise_p4_source_relocator.models import (
     MoveRecord,
     RelocationPlan,
@@ -44,10 +48,13 @@ class FakeP4(P4Client):
         *,
         unsafe_diff: bool = False,
         required_manifest_path: Path | None = None,
+        fail_move_number: int | None = None,
     ) -> None:
         super().__init__(dry_run=False)
         self.unsafe_diff = unsafe_diff
         self.required_manifest_path = required_manifest_path
+        self.fail_move_number = fail_move_number
+        self.move_count = 0
         self.manifest_prepared_before_mutation = False
         self.original_files: dict[Path, bytes] = {}
         self.calls: list[tuple[str, ...]] = []
@@ -66,24 +73,44 @@ class FakeP4(P4Client):
             path = Path(args[-1])
             self.original_files.setdefault(path, path.read_bytes())
         elif operation == "move":
+            self.move_count += 1
+            if self.move_count == self.fail_move_number:
+                raise subprocess.CalledProcessError(1, command.argv)
             source, target = Path(args[-2]), Path(args[-1])
             target.parent.mkdir(parents=True, exist_ok=True)
             source.rename(target)
         elif operation == "opened":
-            stdout = (
-                "//depot/source.wav#1 - move/delete change 123 (binary)\n"
-                "//depot/target.wav#1 - move/add change 123 (binary)\n"
-                "//depot/Default Work Unit.wwu#1 - edit change 123 (text)\n"
+            wav_paths = [Path(arg) for arg in args if arg.endswith(".wav")]
+            work_units = [Path(arg) for arg in args if arg.endswith(".wwu")]
+            lines = []
+            for source, target in zip(wav_paths[::2], wav_paths[1::2]):
+                lines.extend(
+                    (
+                        f"//depot/{source.name}#1 - move/delete change 123 (binary)",
+                        f"//depot/{target.name}#1 - move/add change 123 (binary)",
+                    )
+                )
+            lines.extend(
+                f"//depot/{path.name}#1 - edit change 123 (text)"
+                for path in work_units
             )
+            stdout = "\n".join(lines) + "\n"
         elif operation == "diff":
             extra = "-    <Property Name=\"Volume\"/>\n" if self.unsafe_diff else ""
-            stdout = (
-                "--- old\n"
-                "+++ new\n"
-                f"-                  <AudioFile>{OLD_XML_PATH}</AudioFile>\n"
-                f"+                  <AudioFile>{NEW_XML_PATH}</AudioFile>\n"
-                f"{extra}"
-            )
+            work_unit = Path(args[-1])
+            original = self.original_files[work_unit].decode("utf-8")
+            current = work_unit.read_text(encoding="utf-8")
+            removed = [
+                line for line in original.splitlines() if line not in current.splitlines()
+            ]
+            added = [
+                line for line in current.splitlines() if line not in original.splitlines()
+            ]
+            stdout = "\n".join(
+                ["--- old", "+++ new"]
+                + [f"-{line}" for line in removed]
+                + [f"+{line}" for line in added]
+            ) + f"\n{extra}"
         elif operation == "revert":
             paths = [Path(arg) for arg in args]
             if len(paths) == 2:
@@ -133,11 +160,36 @@ def build_plan(project_root: Path) -> RelocationPlan:
     )
 
 
+def build_batch_plan(project_root: Path) -> RelocationPlan:
+    first = build_plan(project_root).items[0]
+    second = RelocationPlanItem(
+        object_path=r"\Containers\Default Work Unit\VO\Temp_VO\Script\CH04\CH04_D001_WT_001",
+        guid="{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}",
+        source_file_name="CH04_D001_WT_001.wav",
+        from_relative_path="Originals/Voices/English(US)/Dialog/CH04/CH04_D001_WT_001.wav",
+        to_relative_path="Originals/Voices/English(US)/Script/CH04/CH04_D001_WT_001.wav",
+        work_unit_path="Actor-Mixer Hierarchy/Default Work Unit.wwu",
+        action="move-and-patch",
+    )
+    return RelocationPlan(
+        project_root=project_root,
+        object_root=r"\Containers\Default Work Unit\VO\Temp_VO",
+        chapter="CH04",
+        items=(first, second),
+    )
+
+
 class ApplyRollbackTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.project_root = Path(self.temp.name) / "WwiseProject"
         shutil.copytree(FIXTURE_ROOT, self.project_root)
+        second_source = (
+            self.project_root
+            / "Originals/Voices/English(US)/Dialog/CH04/CH04_D001_WT_001.wav"
+        )
+        second_source.parent.mkdir(parents=True, exist_ok=True)
+        second_source.write_bytes(b"RIFF-second-wave")
         self.manifest_path = Path(self.temp.name) / "manifest.json"
 
     def tearDown(self) -> None:
@@ -192,6 +244,113 @@ class ApplyRollbackTests(unittest.TestCase):
         revert_calls = [call for call in p4.calls if call[1] == "revert"]
         self.assertEqual(2, len(revert_calls))
         self.assertTrue(all("//..." not in call for call in revert_calls))
+
+    def test_applies_and_rolls_back_multiple_files_in_one_manifest(self) -> None:
+        p4 = FakeP4(required_manifest_path=self.manifest_path)
+        plan = build_batch_plan(self.project_root)
+
+        manifest, validation = apply_selected_files(
+            plan,
+            only=("CH04_S102_WT_001.wav", "CH04_D001_WT_001.wav"),
+            changelist="123",
+            manifest_path=self.manifest_path,
+            p4=p4,
+            probe=CleanWorkspaceProbe(),
+        )
+
+        self.assertTrue(validation.is_valid)
+        self.assertEqual(2, len(manifest.moves))
+        self.assertEqual(2, len(manifest.patched_files))
+        self.assertEqual(
+            1,
+            len({record.patched_sha256 for record in manifest.patched_files}),
+        )
+        self.assertTrue(
+            all(
+                (self.project_root / move.to_relative_path).is_file()
+                for move in manifest.moves
+            )
+        )
+
+        result = rollback_manifest(
+            manifest, p4=p4, manifest_path=self.manifest_path
+        )
+
+        self.assertTrue(result.is_valid)
+        self.assertTrue(
+            all(
+                (self.project_root / move.from_relative_path).is_file()
+                for move in manifest.moves
+            )
+        )
+        self.assertEqual(
+            1,
+            len(
+                [
+                    call
+                    for call in p4.calls
+                    if call[1] == "revert"
+                    and call[-1].endswith("Default Work Unit.wwu")
+                ]
+            ),
+        )
+
+    def test_batch_failure_rolls_back_already_moved_files_in_reverse(self) -> None:
+        p4 = FakeP4(fail_move_number=2)
+        plan = build_batch_plan(self.project_root)
+
+        with self.assertRaisesRegex(ApplyError, "Apply failed"):
+            apply_selected_files(
+                plan,
+                only=("CH04_S102_WT_001.wav", "CH04_D001_WT_001.wav"),
+                changelist="123",
+                manifest_path=self.manifest_path,
+                p4=p4,
+                probe=CleanWorkspaceProbe(),
+            )
+
+        self.assertTrue(
+            all(
+                (self.project_root / item.from_relative_path).is_file()
+                for item in plan.items
+            )
+        )
+        self.assertTrue(
+            all(
+                not (self.project_root / item.to_relative_path).exists()
+                for item in plan.items
+            )
+        )
+        recovery = read_rollback_manifest(self.manifest_path)
+        self.assertEqual("rolled-back", recovery.status)
+        self.assertEqual(1, len(recovery.moves))
+
+    def test_batch_rejects_conflicting_targets_before_mutation(self) -> None:
+        plan = build_batch_plan(self.project_root)
+        conflicting = replace(
+            plan,
+            items=(
+                plan.items[0],
+                replace(
+                    plan.items[1],
+                    to_relative_path=plan.items[0].to_relative_path,
+                ),
+            ),
+        )
+        p4 = FakeP4()
+
+        with self.assertRaisesRegex(ApplyError, "duplicate source or target"):
+            apply_selected_files(
+                conflicting,
+                only=("CH04_S102_WT_001.wav", "CH04_D001_WT_001.wav"),
+                changelist="123",
+                manifest_path=self.manifest_path,
+                p4=p4,
+                probe=CleanWorkspaceProbe(),
+            )
+
+        self.assertEqual([], p4.calls)
+        self.assertFalse(self.manifest_path.exists())
 
     def test_unsafe_post_apply_diff_triggers_automatic_rollback(self) -> None:
         p4 = FakeP4(unsafe_diff=True)
