@@ -44,15 +44,17 @@ builds a relocation plan, and stores reports beside the application. The GUI
 deliberately exposes no apply or rollback action and never installs production
 prerequisites. See the
 [portable GUI guide](docs/portable-gui.md) and its
-[offline HTML edition](docs/portable-gui.html).
+[offline HTML edition](docs/usage-guide.html).
 
 The repository also retains the CLI for developers and validation operators. It
 can perform the guarded single-file pilot described above. GUI read-only scope
 does not remove or broaden that separate CLI contract.
 
-For a browser-ready Korean walkthrough of macOS and Windows installation,
-fixture tests, the disposable Wwise and Perforce pilot, live validation, and
-rollback, open the [testing and usage guide](docs/usage-guide.html).
+The primary [Korean usage guide](docs/usage-guide.html) follows the portable
+GUI workflow for non-programmer operators. Developers and validation operators
+can use the separate [advanced CLI operations guide](docs/cli-operations-guide.html)
+for fixture tests, the disposable Wwise and Perforce pilot, live validation,
+single-file apply, and rollback.
 
 ## Requirements
 

@@ -15,11 +15,11 @@ def prepare_portable_directory(app_root: str | Path) -> None:
     if not destination.is_dir():
         raise FileNotFoundError(f"Portable app directory is missing: {destination}")
 
-    guide_template = (REPO_ROOT / "docs" / "portable-gui.html").read_text(
+    guide_template = (REPO_ROOT / "docs" / "usage-guide.html").read_text(
         encoding="utf-8"
     )
     (destination / "사용가이드.html").write_text(
-        guide_template.replace("{{APP_VERSION}}", __version__),
+        guide_template.replace("현재 릴리스", f"버전 {__version__}"),
         encoding="utf-8",
     )
     shutil.copyfile(REPO_ROOT / "LICENSE", destination / "LICENSE.txt")

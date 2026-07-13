@@ -11,6 +11,23 @@ REPO_ROOT = Path(__file__).parents[1]
 
 
 class PortablePackageTests(unittest.TestCase):
+    def test_canonical_usage_guide_is_gui_focused(self) -> None:
+        guide = (REPO_ROOT / "docs" / "usage-guide.html").read_text(
+            encoding="utf-8"
+        )
+        advanced_guide = (
+            REPO_ROOT / "docs" / "cli-operations-guide.html"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("Portable 사용 가이드", guide)
+        self.assertIn("빠른 시작", guide)
+        self.assertIn("현재 버전의 안전 범위", guide)
+        self.assertNotIn("apply --only", guide)
+        self.assertIn("고급 테스트 및 CLI 운영 가이드", advanced_guide)
+        self.assertIn("apply --only", advanced_guide)
+        self.assertIn('href="usage-guide.html"', advanced_guide)
+        self.assertFalse((REPO_ROOT / "docs" / "portable-gui.html").exists())
+
     def test_preparation_adds_operator_files_and_removes_legacy_guide(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             app_root = Path(directory) / "WwiseOriginalsRelocator"
