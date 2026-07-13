@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import platform
 import sys
+import traceback
 
 from .. import __version__
 from .bridge import GuiApi
@@ -66,10 +67,23 @@ def _run_portable_smoke_check(index_path: Path) -> int:
             asset_path = index_path.with_name(asset_name)
             if not asset_path.is_file() or asset_path.stat().st_size == 0:
                 raise FileNotFoundError(f"GUI asset is missing: {asset_path}")
-    except Exception as exc:
-        print(f"Portable smoke check failed: {exc}", file=sys.stderr)
+    except Exception:
+        details = "Portable smoke check failed:\n" + traceback.format_exc()
+        _write_smoke_report(details)
+        print(details, file=sys.stderr)
         return 1
+    _write_smoke_report("Portable smoke check passed.\n")
     return 0
+
+
+def _write_smoke_report(contents: str) -> None:
+    report_path = os.environ.get("WWISE_RELOCATOR_SMOKE_REPORT")
+    if not report_path:
+        return
+    try:
+        Path(report_path).write_text(contents, encoding="utf-8")
+    except OSError:
+        pass
 
 
 def _configure_logging(data_root: Path) -> None:

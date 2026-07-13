@@ -48,8 +48,13 @@ jobs:
         shell: pwsh
         run: |
           $env:WWISE_RELOCATOR_SMOKE_TEST = "1"
+          $env:WWISE_RELOCATOR_SMOKE_REPORT = Join-Path $env:RUNNER_TEMP "portable-smoke.txt"
           & "./dist/WwiseOriginalsRelocator/WwiseOriginalsRelocator.exe"
-          if ($LASTEXITCODE -ne 0) {
+          $SmokeExitCode = $LASTEXITCODE
+          if (Test-Path $env:WWISE_RELOCATOR_SMOKE_REPORT) {
+            Get-Content $env:WWISE_RELOCATOR_SMOKE_REPORT
+          }
+          if ($SmokeExitCode -ne 0) {
             throw "Portable executable smoke test failed."
           }
       - name: Upload portable app
