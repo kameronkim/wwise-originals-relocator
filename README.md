@@ -31,9 +31,15 @@ dependencies.
 The application does not install Wwise, Perforce, WebView2, or system web
 components.
 
-When launched from a P4V custom tool, the GUI imports the active `P4PORT`,
-`P4USER`, `P4CLIENT`, and `P4CHARSET` context. It reuses the existing Perforce
-login ticket and never stores a password or ticket.
+The GUI reads the effective non-secret Perforce settings reported by `p4 set`.
+If `P4CLIENT` is missing, it checks the current user's workspaces on the current
+host and selects one only when exactly one workspace maps the chosen Wwise
+project. Ambiguous or unmapped projects remain blocked for explicit review.
+
+Launching the app from a P4V custom tool is still the most reliable option:
+P4V passes the active `P4PORT`, `P4USER`, `P4CLIENT`, and `P4CHARSET` context
+directly to the app. The existing Perforce login ticket is reused; passwords
+and tickets are never stored by the application.
 
 ## Operator workflow
 
