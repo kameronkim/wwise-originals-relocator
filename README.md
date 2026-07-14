@@ -70,30 +70,3 @@ apply, and rollback controls remain disabled in this mode.
 `v0.1.0-rc.2` remains a pre-release because a real multi-file Wwise and
 Perforce apply/validate/rollback pilot is still required before final
 `v0.1.0` approval.
-
-## Development
-
-Python 3.11 or newer is required for development.
-
-```bash
-python -m pip install -e ".[dev,gui,waapi]"
-python -m pytest
-```
-
-Launch the development GUI:
-
-```bash
-wwise-p4-source-relocator-gui
-```
-
-Build a one-folder portable ZIP:
-
-```powershell
-./scripts/build-portable.ps1
-```
-
-```bash
-./scripts/build-portable.sh
-```
-
-See [CHANGELOG.md](CHANGELOG.md) for user-visible changes.

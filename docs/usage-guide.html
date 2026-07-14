@@ -86,6 +86,10 @@
     .chip-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 14%, transparent); }
     .icon-button { width: 36px; height: 36px; display: inline-grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink-soft); cursor: pointer; box-shadow: var(--shadow-sm); }
     .icon-button:hover { border-color: var(--line-strong); background: var(--surface-muted); color: var(--sky-dark); }
+    .theme-icon-moon, .theme-icon-sun { grid-area: 1 / 1; }
+    .theme-icon-sun { display: none; }
+    html[data-theme="dark"] .theme-icon-moon { display: none; }
+    html[data-theme="dark"] .theme-icon-sun { display: block; }
     .menu-button { display: none; }
 
     .layout { width: min(1440px, 100%); min-height: calc(100vh - 64px); margin: 0 auto; display: grid; grid-template-columns: 268px minmax(0, 1fr); }
@@ -243,6 +247,8 @@
     .footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 28px; padding: 20px 4px 0; color: var(--muted); font-size: 0.7rem; }
     .footer-brand { display: flex; align-items: center; gap: 8px; }
     .footer-brand .brand-mark { width: 26px; height: 26px; border-radius: 8px; }
+    .footer-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; text-align: right; }
+    .footer-signature { color: var(--ink-soft); font-family: Georgia, "Times New Roman", serif; font-size: 0.76rem; letter-spacing: 0.02em; white-space: nowrap; }
     .backdrop { display: none; }
 
     @media (max-width: 1080px) {
@@ -283,6 +289,7 @@
       .phase-number { width: 36px; height: 36px; }
       .footer { display: block; }
       .footer > span { display: block; margin-top: 8px; }
+      .footer-meta { display: flex; align-items: flex-start; text-align: left; }
     }
 
     @media print {
@@ -340,8 +347,8 @@
         <span class="chip live"><span class="chip-dot"></span>오프라인 문서</span>
         <span class="chip">Windows x64 · macOS</span>
         <button id="theme-toggle" class="icon-button" type="button" aria-label="색상 모드 전환">
-          <svg class="icon theme-icon-moon"><use href="#i-moon"></use></svg>
-          <svg class="icon theme-icon-sun" hidden><use href="#i-sun"></use></svg>
+          <svg class="icon theme-icon-moon" aria-hidden="true"><use href="#i-moon"></use></svg>
+          <svg class="icon theme-icon-sun" aria-hidden="true"><use href="#i-sun"></use></svg>
         </button>
       </div>
     </div>
@@ -519,7 +526,7 @@
           </div>
         </section>
 
-        <footer class="footer"><span class="footer-brand"><span class="brand-mark"><svg class="icon"><use href="#i-route"></use></svg></span>Wwise Originals Relocator</span><span>Portable GUI · Offline handbook · 현재 릴리스</span></footer>
+        <footer class="footer"><span class="footer-brand"><span class="brand-mark"><svg class="icon"><use href="#i-route"></use></svg></span>Wwise Originals Relocator</span><span class="footer-meta"><span>Portable GUI · Offline handbook · 현재 릴리스</span><span class="footer-signature" lang="en" aria-label="제작자 Kameron">— Kameron</span></span></footer>
       </div>
     </main>
   </div>
@@ -531,8 +538,6 @@
       const menuToggle = document.getElementById('menu-toggle');
       const backdrop = document.getElementById('backdrop');
       const themeToggle = document.getElementById('theme-toggle');
-      const moon = themeToggle.querySelector('.theme-icon-moon');
-      const sun = themeToggle.querySelector('.theme-icon-sun');
       const links = [...document.querySelectorAll('.nav-link')];
       const sections = links.map((link) => document.querySelector(link.getAttribute('href'))).filter(Boolean);
 
@@ -559,8 +564,6 @@
       const applyTheme = (theme) => {
         root.dataset.theme = theme;
         const dark = theme === 'dark';
-        moon.hidden = dark;
-        sun.hidden = !dark;
         themeToggle.setAttribute('aria-label', dark ? '밝은 색상 모드로 전환' : '어두운 색상 모드로 전환');
       };
       applyTheme(storedTheme || (preferredDark ? 'dark' : 'light'));
@@ -574,14 +577,27 @@
         applyTheme(next);
       });
 
+      const activateSection = (section) => {
+        links.forEach((link) => link.classList.toggle('active', link.getAttribute('href') === `#${section.id}`));
+      };
+      const isAtPageBottom = () => Math.ceil(window.scrollY + window.innerHeight) >= document.documentElement.scrollHeight - 2;
+      const activateLastSectionAtBottom = () => {
+        if (isAtPageBottom() && sections.length) activateSection(sections[sections.length - 1]);
+      };
+
       if ('IntersectionObserver' in window) {
         const observer = new IntersectionObserver((entries) => {
+          if (isAtPageBottom()) {
+            activateLastSectionAtBottom();
+            return;
+          }
           const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
           if (!visible) return;
-          links.forEach((link) => link.classList.toggle('active', link.getAttribute('href') === `#${visible.target.id}`));
+          activateSection(visible.target);
         }, {rootMargin: '-18% 0px -68% 0px', threshold: [0, 0.1, 0.35]});
         sections.forEach((section) => observer.observe(section));
       }
+      window.addEventListener('scroll', activateLastSectionAtBottom, {passive: true});
 
       const faqToggle = document.getElementById('faq-toggle');
       const faqs = [...document.querySelectorAll('details.faq')];
