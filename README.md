@@ -17,8 +17,9 @@ The current build is the
 - SHA-256 checksums
 
 Extract the complete ZIP to a writable local folder. Keep the executable,
-`_internal` folder, `사용가이드.html`, `LICENSE.txt`, and `VERSION.txt`
-together. The portable app does not install Python or other dependencies.
+`_internal` folder, bundled offline HTML guide, `LICENSE.txt`, and
+`VERSION.txt` together. The portable app does not install Python or other
+dependencies.
 
 ## Requirements
 
@@ -51,9 +52,9 @@ inside every portable ZIP.
 
 ## Perforce-free test mode
 
-Enable **Perforce 없이 로컬 테스트** to exercise Wwise/WAAPI scanning, local
-path checks, planning, and reports without a Perforce installation. Mutation,
-apply, and rollback controls remain disabled in this mode.
+Enable the **Perforce-free local test mode** to exercise Wwise/WAAPI scanning,
+local path checks, planning, and reports without a Perforce installation.
+Mutation, apply, and rollback controls remain disabled in this mode.
 
 ## Safety boundaries
 
