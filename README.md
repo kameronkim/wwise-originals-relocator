@@ -1,264 +1,95 @@
-# Wwise P4 Source Relocator
+# Wwise Originals Relocator
 
-A Perforce-aware Wwise Originals relocation tool.
+A portable desktop tool for moving Wwise Originals WAV files while preserving
+Perforce history and Wwise source references.
 
-This tool helps reorganize Wwise Originals WAV files without breaking Wwise
-source references or losing Perforce file history. It builds a relocation plan,
-moves WAV files through `p4 move`, patches Wwise `.wwu` source references, and
-validates that affected Wwise objects keep their GUIDs and do not become missing
-sources.
+The application builds a relocation plan, moves approved WAV files with
+`p4 move`, patches only the matching Wwise Work Unit source paths, and validates
+the result against the filesystem, Perforce, and live Wwise objects.
 
-It is designed for source cleanup tasks such as splitting a mixed
-`Scenario/CH04` voice folder into `Cutscene/CH04` and `Script/CH04` while
-preserving both Wwise project integrity and Perforce history.
+## Download
 
-## Current status
+The current build is the
+[v0.1.0-rc.1 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.1):
 
-The current published candidate is `v0.1.0-rc.1`. Automated tests, portable
-packaging, single-file live Wwise validation, and a disposable local Helix Core
-apply/rollback pilot are complete. A real multi-file Wwise and Perforce
-apply/validate/rollback pilot remains mandatory before creating the final
-`v0.1.0` tag.
+- Windows x64 portable ZIP
+- macOS arm64 portable ZIP
+- SHA-256 checksums
 
-The current implementation provides planning, guarded single-file CLI pilot
-execution, and selected-file GUI execution:
-
-- parse `AudioFileSource` references from a `.wwu` file;
-- scan Wwise Sound and Audio File Source objects through WAAPI;
-- classify `Cutscene`, `Script`, `Dialog`, and `Dynamic` tree categories;
-- generate JSON and Markdown relocation plans;
-- reject missing, multiple, shared, or ambiguous sources;
-- preflight filesystem and Perforce workspace state;
-- open the WWU and source WAV with `p4 edit`, then relocate through `p4 move`;
-- patch one or more GUID-scoped, exact WWU source paths without XML reformatting;
-- write a rollback manifest before running any mutating Perforce command;
-- validate filesystem, WWU hash, Perforce move state, and the WWU diff;
-- validate Wwise GUID, object path, source path, and source existence via WAAPI;
-- roll back only the paths listed in the manifest;
-- exercise the behavior against a small fixture project.
-
-Changelist submission and Wwise import as a relocation mechanism are not
-implemented. The disposable-project bootstrap uses WwiseConsole import
-only to create its isolated test fixture.
-Planning commands remain read-only, and `apply` refuses to run unless `--only`
-selects exactly one safe move candidate.
-
-For non-programmer operators, the primary distribution is a portable desktop
-GUI. It requires no Python installation on the target PC. It uses the existing
-Wwise Authoring and Perforce CLI setup, runs readiness checks, builds a
-relocation plan, and stores reports beside the application. After a valid plan,
-the GUI can apply one or more selected WAVs through the same guarded
-manifest-first contract as the CLI. All selected items are preflighted before
-mutation, share one changelist and manifest, and are rolled back in reverse if
-any item fails. It can also revalidate the applied files against the local
-filesystem, Perforce opened/diff state, and the live Wwise object after the
-operator reloads External Project Changes. It never submits a changelist or
-installs production prerequisites. See the
-[portable GUI guide](docs/portable-gui.md) and its
-[offline HTML edition](docs/usage-guide.html).
-
-Successful GUI validation is stored beside the rollback manifest so it survives
-an app restart. The operator can then hand the change off to P4V. The GUI keeps
-rollback available while the related files remain opened and unlocks the next
-operation only after P4V is closed out and the resulting filesystem, WWU, and
-live Wwise state are consistent. Submission remains a separate P4V action.
-The GUI also provides a read-only recent-operation history for the selected
-project, including completed, rolled-back, handed-off, and failed manifests
-with their report locations.
-
-When Perforce is not available, the GUI's explicit local test mode can still
-exercise Wwise/WAAPI scanning, local path validation, planning, and report
-rendering. It skips only Perforce CLI, workspace, and opened-file checks and
-keeps all mutation controls disabled.
-
-The repository also retains the CLI for developers and validation operators.
-Both surfaces share the same manifest-first apply and rollback engine. The CLI
-keeps its explicit single-file `--only` pilot interface; multi-selection is
-available through the portable GUI.
-
-The primary [Korean usage guide](docs/usage-guide.html) follows the portable
-GUI workflow for non-programmer operators. Developers and validation operators
-can use the separate [advanced CLI operations guide](docs/cli-operations-guide.html)
-for fixture tests, the disposable Wwise and Perforce pilot, live validation,
-single-file apply, and rollback.
+Extract the complete ZIP to a writable local folder. Keep the executable,
+`_internal` folder, `사용가이드.html`, `LICENSE.txt`, and `VERSION.txt`
+together. The portable app does not install Python or other dependencies.
 
 ## Requirements
 
-- Python 3.11 or newer
-- `pytest` to run the tests (development only)
-- `waapi-client` for live Wwise scanning and validation
+- Wwise Authoring with WAAPI enabled and the target project open
+- Perforce CLI (`p4` or `p4.exe`) and a mapped workspace for real operations
+- P4V for the final diff review and submit or revert workflow
+- Windows x64 or a macOS build matching the target CPU architecture
 
-The core parser, planner, and file patcher use only the Python standard library.
-Live Wwise access adds `waapi-client` as an optional dependency.
+The application does not install Wwise, Perforce, WebView2, or system web
+components.
 
-For GUI development, install and launch the desktop extra:
+## Operator workflow
 
-```bash
-python -m pip install -e ".[gui]"
-wwise-p4-source-relocator-gui
-```
+1. Open the target project in Wwise and enable WAAPI.
+2. Start the portable application and select the folder containing one
+   `.wproj` file.
+3. Run the environment check.
+4. Build and review the relocation plan.
+5. Select one or more safe items and confirm the complete path list.
+6. Apply the move, reload External Project Changes in Wwise, and run validation.
+7. Hand the validated change to P4V, or roll it back with the recorded manifest.
 
-This dependency installation is for developers only. Operators receive a
-one-folder ZIP produced by `scripts/build-portable.ps1` on Windows,
-`scripts/build-portable.sh` on macOS, or the **Build portable GUI** GitHub
-workflow and do not need Python. The workflow validates the Windows x64
-artifact; a macOS ZIP is built and smoke-tested on the target Mac architecture
-before release.
+The Korean [offline usage guide](docs/usage-guide.html) contains the complete
+screen-based instructions and troubleshooting steps. The same guide is bundled
+inside every portable ZIP.
 
-Install the live-scanning extra with:
+## Perforce-free test mode
 
-```bash
-python -m pip install -e ".[waapi]"
-```
+Enable **Perforce 없이 로컬 테스트** to exercise Wwise/WAAPI scanning, local
+path checks, planning, and reports without a Perforce installation. Mutation,
+apply, and rollback controls remain disabled in this mode.
 
-## Create a disposable Wwise pilot project
+## Safety boundaries
 
-On a machine with Wwise Authoring installed, create a populated project without
-touching an existing `.wproj`:
+- Planning and readiness checks do not modify the project.
+- WAV relocation uses `p4 move`; the application never submits a changelist.
+- A rollback manifest is saved before the first mutating Perforce command.
+- Shared, ambiguous, missing, conflicting, or out-of-workspace sources stop
+  automatic mutation.
+- A selected-file batch is fully preflighted before mutation and reverses
+  completed moves if a later item fails.
+- Wwise External Project Changes must be reloaded manually before live
+  validation.
 
-```bash
-PYTHONPATH=src python -m wwise_p4_source_relocator bootstrap-project \
-  --project-root /private/tmp/wwise-relocator-p4/workspace/WwiseRelocatorPilot
-```
+`v0.1.0-rc.1` remains a pre-release because a real multi-file Wwise and
+Perforce apply/validate/rollback pilot is still required before final
+`v0.1.0` approval.
 
-The command refuses to use a non-empty destination. It invokes WwiseConsole to
-create a new project and imports a generated PCM voice WAV into:
+## Development
 
-```text
-Originals/Voices/English(US)/Scenario/CH04/CH04_S102_WT_001.wav
-```
-
-The Wwise object is created under
-`\Containers\Default Work Unit\VO\Script\CH04`, so the planner expects the WAV
-to move from `Scenario/CH04` to `Script/CH04`. The project root also receives
-`relocator-pilot.json` with the exact scan inputs and expected paths.
-
-Run Wwise headlessly for live scanning and validation:
+Python 3.11 or newer is required for development.
 
 ```bash
-"/path/to/WwiseConsole.sh" waapi-server \
-  /private/tmp/wwise-relocator-p4/workspace/WwiseRelocatorPilot/WwiseRelocatorPilot.wproj \
-  --wamp-port 18080 \
-  --http-port 18090 \
-  --allowed-origin localhost,127.0.0.1
-```
-
-See [the live Wwise pilot](docs/live-wwise-pilot.md) for the complete Perforce,
-WAAPI, apply, validation, and rollback sequence.
-
-## Check pilot readiness
-
-Before selecting a file, verify the local project and toolchain:
-
-```bash
-wwise-p4-source-relocator doctor \
-  --project-root "D:\Work\Dev\Ilias\Ilias_WwiseProject" \
-  --json-out reports/pilot-readiness.json \
-  --markdown-out reports/pilot-readiness.md
-```
-
-The command checks for one Wwise project file, Originals WAV files, WWU source
-references, the `p4` CLI and workspace mapping, `waapi-client`, and a reachable
-WAAPI server. It performs no project or Perforce mutations.
-
-## Try the source inspector
-
-From the repository root:
-
-```bash
-PYTHONPATH=src python -m wwise_p4_source_relocator inspect-wwu \
-  --wwu "tests/fixtures/sample_project/Actor-Mixer Hierarchy/Default Work Unit.wwu" \
-  --project-root tests/fixtures/sample_project \
-  --json-out reports/source-plan.json \
-  --markdown-out reports/source-plan.md
-```
-
-The generated plan is intentionally no-op: every discovered source is marked
-`skip` with an inspection-only reason. This establishes source discovery and
-report formats without implying that relocation is safe to apply.
-
-## Scan and build a relocation plan
-
-With Wwise running and WAAPI enabled:
-
-```bash
-wwise-p4-source-relocator scan \
-  --project-root "D:\Work\Dev\Ilias\Ilias_WwiseProject" \
-  --object-root "\\Containers\\Default Work Unit\\VO\\Temp_VO" \
-  --chapter CH04 \
-  --out reports/ch04-scan.json
-
-wwise-p4-source-relocator plan \
-  --scan reports/ch04-scan.json \
-  --out reports/ch04-plan.json
-
-wwise-p4-source-relocator validate-plan \
-  --plan reports/ch04-plan.json \
-  --report reports/ch04-validation.md
-```
-
-`validate-plan` exits with a non-zero status when a manual-review item or hard
-preflight error is present. It requires `p4` to be installed and the affected
-WAV and Work Unit paths to belong to the current Perforce workspace.
-
-## Run a single-file pilot
-
-After reviewing a valid plan, select exactly one WAV:
-
-```bash
-wwise-p4-source-relocator apply \
-  --plan reports/ch04-plan.json \
-  --only CH04_S102_WT_001.wav \
-  --changelist 123456 \
-  --manifest reports/pilot-manifest.json
-```
-
-The manifest is written before `p4 edit` or `p4 move`. If the WWU patch or local
-post-apply checks fail, the tool immediately attempts to revert only the moved
-WAV and edited Work Unit recorded in that manifest.
-
-Wwise must reload the externally changed Work Unit before live validation. In
-Wwise, accept the External Project Changes prompt and reload the affected Work
-Unit. In the GUI, select **Wwise 반영 확인**. The same check is available to CLI
-operators with:
-
-```bash
-wwise-p4-source-relocator validate-apply \
-  --manifest reports/pilot-manifest.json \
-  --report reports/pilot-validation.md
-```
-
-To restore the pilot without submitting anything:
-
-```bash
-wwise-p4-source-relocator rollback \
-  --manifest reports/pilot-manifest.json
-```
-
-`rollback` never issues a broad `p4 revert //...`; it uses only the exact paths
-recorded in the manifest.
-
-If no shared Perforce environment is available, follow the
-[local disposable Perforce pilot](docs/local-perforce-pilot.md) to validate the
-real move and rollback behavior without touching a production depot.
-
-Run the tests with:
-
-```bash
+python -m pip install -e ".[dev,gui,waapi]"
 python -m pytest
 ```
 
-## Safety contract
+Launch the development GUI:
 
-- WAV relocation will only use `p4 move`.
-- The tool will never submit a changelist.
-- Exact source-path matching is required before patching a `.wwu`.
-- Ambiguous or shared sources must stop automation and require review.
-- A selected-file batch must pass the complete preflight before mutation and
-  stops on the first failure with reverse rollback of already moved files.
-- Rollback manifests are mandatory for every apply operation.
+```bash
+wwise-p4-source-relocator-gui
+```
 
-See [the development specification](docs/development-spec.md) for the safety
-contract and implementation status. Release candidates follow
-[the release procedure](RELEASING.md), and user-visible changes are recorded in
-[the changelog](CHANGELOG.md).
+Build a one-folder portable ZIP:
+
+```powershell
+./scripts/build-portable.ps1
+```
+
+```bash
+./scripts/build-portable.sh
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for user-visible changes.

@@ -1,8 +1,8 @@
 # Changelog
 
 All notable user-visible changes are recorded in this file. Final semantic
-version tags require every release gate in `RELEASING.md`. A pre-release may be
-published with an explicitly documented outstanding live-validation gate.
+version tags are created only after the required validation passes. A
+pre-release may document an outstanding live-validation gate.
 
 ## Unreleased
 

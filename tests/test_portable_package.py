@@ -20,12 +20,9 @@ class PortablePackageTests(unittest.TestCase):
             {"attr": "wwise_p4_source_relocator.__version__"},
             config["tool"]["setuptools"]["dynamic"]["version"],
         )
-        self.assertTrue((REPO_ROOT / "CHANGELOG.md").is_file())
-        release_guide = (REPO_ROOT / "RELEASING.md").read_text(encoding="utf-8")
-        self.assertIn("A real multi-file project", release_guide)
-        self.assertIn("a Perforce workspace", release_guide)
-        self.assertIn("Do not create a final version tag", release_guide)
-        self.assertIn("A tagged GitHub pre-release", release_guide)
+        changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn("0.1.0-rc.1", changelog)
+        self.assertIn("real multi-file Wwise and Perforce", changelog)
 
     def test_portable_workflow_covers_integration_branches_and_source(self) -> None:
         workflow = (
@@ -41,10 +38,6 @@ class PortablePackageTests(unittest.TestCase):
         guide = (REPO_ROOT / "docs" / "usage-guide.html").read_text(
             encoding="utf-8"
         )
-        advanced_guide = (
-            REPO_ROOT / "docs" / "cli-operations-guide.html"
-        ).read_text(encoding="utf-8")
-
         self.assertIn("Portable 사용 가이드", guide)
         self.assertIn("빠른 시작", guide)
         self.assertIn("선택 파일 적용과 Rollback", guide)
@@ -52,10 +45,21 @@ class PortablePackageTests(unittest.TestCase):
         self.assertIn("프로그램은 submit하지 않습니다", guide)
         self.assertIn("현재 버전의 안전 범위", guide)
         self.assertNotIn("apply --only", guide)
-        self.assertIn("고급 테스트 및 CLI 운영 가이드", advanced_guide)
-        self.assertIn("apply --only", advanced_guide)
-        self.assertIn('href="usage-guide.html"', advanced_guide)
         self.assertFalse((REPO_ROOT / "docs" / "portable-gui.html").exists())
+
+    def test_private_development_documents_are_not_tracked(self) -> None:
+        private_documents = (
+            "RELEASING.md",
+            "docs/cli-operations-guide.html",
+            "docs/development-spec.md",
+            "docs/live-wwise-pilot.md",
+            "docs/local-perforce-pilot.md",
+            "docs/portable-gui.md",
+        )
+
+        for relative_path in private_documents:
+            with self.subTest(path=relative_path):
+                self.assertFalse((REPO_ROOT / relative_path).exists())
 
     def test_preparation_adds_operator_files_and_removes_legacy_guide(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
