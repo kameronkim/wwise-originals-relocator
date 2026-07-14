@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 from typing import Mapping
+
+
+LOGGER = logging.getLogger(__name__)
+LOGGER.addHandler(logging.NullHandler())
 
 
 class P4ExecutionDisabled(RuntimeError):
@@ -71,11 +77,15 @@ class P4Connection:
 class P4ConnectionInfo:
     connection: P4Connection
     server_version: str | None = None
+    server_address: str | None = None
+    client_candidates: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
             **self.connection.to_dict(),
             "serverVersion": self.server_version or "",
+            "serverAddress": self.server_address or "",
+            "clientCandidates": list(self.client_candidates),
         }
 
 
@@ -197,6 +207,7 @@ def query_p4_connection(
     if result.returncode != 0 or _output_has_error(
         f"{result.stdout}\n{result.stderr}"
     ):
+        _log_p4_failure("info", result)
         raise P4CommandError(
             result.returncode or 1,
             argv,
@@ -204,23 +215,187 @@ def query_p4_connection(
             stderr=result.stderr,
         )
     values = _parse_ztag(result.stdout)
-    resolved = P4Connection(
-        port=requested.port or _optional(values.get("serverAddress")),
-        user=requested.user or _optional(values.get("userName")),
-        client=requested.client or _known_client(values.get("clientName")),
-        charset=requested.charset,
+    local_settings = _query_local_p4_settings(
+        executable=executable,
+        cwd=cwd,
+        timeout=timeout,
     )
-    if not resolved.port or not resolved.user:
+    resolved = P4Connection(
+        port=requested.port or local_settings.port,
+        user=(
+            requested.user
+            or local_settings.user
+            or _optional(values.get("userName"))
+        ),
+        client=(
+            requested.client
+            or local_settings.client
+            or _known_client(values.get("clientName"))
+        ),
+        charset=requested.charset or local_settings.charset,
+    )
+    client_candidates: tuple[str, ...] = ()
+    if resolved.client is None and cwd is not None and resolved.user:
+        client_candidates = _matching_project_clients(
+            executable=executable,
+            connection=resolved,
+            project_path=Path(cwd),
+            timeout=timeout,
+        )
+        if len(client_candidates) == 1:
+            resolved = P4Connection(
+                port=resolved.port,
+                user=resolved.user,
+                client=client_candidates[0],
+                charset=resolved.charset,
+            )
+    if not resolved.user:
         raise P4CommandError(
             1,
             argv,
             output=result.stdout,
-            stderr="Perforce info did not identify a server and user",
+            stderr="Perforce info did not identify a user",
         )
     return P4ConnectionInfo(
         connection=resolved,
         server_version=_optional(values.get("serverVersion")),
+        server_address=_optional(values.get("serverAddress")),
+        client_candidates=client_candidates,
     )
+
+
+def _query_local_p4_settings(
+    *,
+    executable: str,
+    cwd: str | Path | None,
+    timeout: float,
+) -> P4Connection:
+    """Read non-secret P4 settings without treating serverAddress as P4PORT."""
+
+    try:
+        result = subprocess.run(
+            (executable, "set"),
+            cwd=str(cwd) if cwd is not None else None,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return P4Connection()
+    if result.returncode != 0 or _output_has_error(
+        f"{result.stdout}\n{result.stderr}"
+    ):
+        _log_p4_failure("set", result)
+        return P4Connection()
+    values = _parse_p4_set(result.stdout)
+    return P4Connection(
+        port=values.get("P4PORT"),
+        user=values.get("P4USER"),
+        client=values.get("P4CLIENT"),
+        charset=values.get("P4CHARSET"),
+    )
+
+
+def _matching_project_clients(
+    *,
+    executable: str,
+    connection: P4Connection,
+    project_path: Path,
+    timeout: float,
+) -> tuple[str, ...]:
+    if not connection.user:
+        return ()
+    try:
+        result = subprocess.run(
+            (
+                executable,
+                *connection.global_options(),
+                "-ztag",
+                "clients",
+                "-u",
+                connection.user,
+            ),
+            cwd=str(project_path),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ()
+    if result.returncode != 0 or _output_has_error(
+        f"{result.stdout}\n{result.stderr}"
+    ):
+        _log_p4_failure("clients", result)
+        return ()
+
+    local_host = socket.gethostname().casefold()
+    client_names: list[str] = []
+    for record in _parse_ztag_records(result.stdout, record_key="client"):
+        name = _optional(record.get("client"))
+        host = _optional(record.get("Host"))
+        if name and (not host or host.casefold() == local_host):
+            client_names.append(name)
+
+    mapping_path = next(project_path.glob("*.wproj"), project_path)
+    matches: list[str] = []
+    for client in client_names[:25]:
+        candidate = P4Connection(
+            port=connection.port,
+            user=connection.user,
+            client=client,
+            charset=connection.charset,
+        )
+        try:
+            spec = subprocess.run(
+                (
+                    executable,
+                    *candidate.global_options(),
+                    "-ztag",
+                    "client",
+                    "-o",
+                    client,
+                ),
+                cwd=str(project_path),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout,
+            )
+            if p4_result_has_error(spec):
+                continue
+            spec_values = _parse_ztag(spec.stdout)
+            roots = [
+                value
+                for key, value in spec_values.items()
+                if key == "Root" or key.startswith("AltRoots")
+            ]
+            if not any(
+                _path_is_within(mapping_path, Path(root)) for root in roots
+            ):
+                continue
+            where = subprocess.run(
+                (
+                    executable,
+                    *candidate.global_options(),
+                    "where",
+                    str(mapping_path),
+                ),
+                cwd=str(project_path),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if (
+            not p4_result_has_error(where)
+            and "not in client view" not in where.stdout
+        ):
+            matches.append(client)
+    return tuple(matches)
 
 
 def _strip_status_prefixes(output: str) -> str:
@@ -241,6 +416,37 @@ def _parse_ztag(output: str) -> dict[str, str]:
     return values
 
 
+def _parse_ztag_records(
+    output: str, *, record_key: str
+) -> tuple[dict[str, str], ...]:
+    records: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+    for line in output.splitlines():
+        match = re.match(r"^\.\.\.\s+(\S+)\s*(.*)$", line)
+        if not match:
+            continue
+        key = match.group(1)
+        if key == record_key and record_key in current:
+            records.append(current)
+            current = {}
+        current[key] = match.group(2).strip()
+    if current:
+        records.append(current)
+    return tuple(records)
+
+
+def _parse_p4_set(output: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in output.splitlines():
+        match = re.match(
+            r"^(P4PORT|P4USER|P4CLIENT|P4CHARSET)=([^\s]+)",
+            line.strip(),
+        )
+        if match:
+            values[match.group(1)] = match.group(2)
+    return values
+
+
 def p4_result_has_error(result: subprocess.CompletedProcess[str]) -> bool:
     return result.returncode != 0 or _output_has_error(
         f"{result.stdout}\n{result.stderr}"
@@ -253,6 +459,31 @@ def _output_has_error(output: str) -> bool:
             ("error:", "fatal:", "perforce client error:")
         )
         for line in output.splitlines()
+    )
+
+
+def _path_is_within(path: Path, root: Path) -> bool:
+    try:
+        path_value = os.path.normcase(os.path.abspath(str(path)))
+        root_value = os.path.normcase(os.path.abspath(str(root)))
+        return os.path.commonpath((path_value, root_value)) == root_value
+    except ValueError:
+        return False
+
+
+def _log_p4_failure(
+    operation: str, result: subprocess.CompletedProcess[str]
+) -> None:
+    details = "\n".join(
+        line.strip()
+        for line in f"{result.stdout}\n{result.stderr}".splitlines()
+        if line.strip()
+    )
+    LOGGER.warning(
+        "Perforce %s failed with exit code %s: %s",
+        operation,
+        result.returncode,
+        details[:2000] or "no output",
     )
 
 

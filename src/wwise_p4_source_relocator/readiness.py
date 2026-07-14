@@ -24,6 +24,11 @@ from .wwise_xml import WwuParseError, parse_source_references
 
 
 CheckStatus = Literal["pass", "fail"]
+P4WorkspaceIssue = Literal[
+    "connection-unavailable",
+    "not-configured",
+    "not-mapped",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +49,7 @@ class PilotReadiness:
     waapi_transport: str | None = None
     waapi_issue: str | None = None
     p4_connection: P4ConnectionInfo | None = None
+    p4_workspace_issue: P4WorkspaceIssue | None = None
 
     @property
     def ready(self) -> bool:
@@ -64,6 +70,7 @@ class PilotReadiness:
             "p4Connection": (
                 self.p4_connection.to_dict() if self.p4_connection else None
             ),
+            "p4WorkspaceIssue": self.p4_workspace_issue,
         }
 
 
@@ -177,25 +184,33 @@ def inspect_pilot_readiness(
             else "Could not connect to the configured Perforce server",
         )
     )
-    if p4_workspace is None:
-        in_workspace = (
-            _p4_contains_project(
-                root,
-                executable=p4_executable,
-                connection=effective_connection,
-            )
-            if detected_p4 and connected and root_exists
-            else False
-        )
-    else:
+    workspace_connection = (
+        connection_info.connection if connection_info else effective_connection
+    )
+    workspace_issue: P4WorkspaceIssue | None = None
+    if p4_workspace is not None:
         in_workspace = p4_workspace
+        if not in_workspace:
+            workspace_issue = "not-mapped"
+    elif not detected_p4 or not connected or not root_exists:
+        in_workspace = False
+        workspace_issue = "connection-unavailable"
+    elif not workspace_connection.client:
+        in_workspace = False
+        workspace_issue = "not-configured"
+    else:
+        in_workspace = _p4_contains_project(
+            root,
+            executable=p4_executable,
+            connection=workspace_connection,
+        )
+        if not in_workspace:
+            workspace_issue = "not-mapped"
     checks.append(
         _check(
             "p4-workspace",
             in_workspace,
-            "Project root is mapped in the current Perforce workspace"
-            if in_workspace
-            else "Project root is not mapped in the current Perforce workspace",
+            _p4_workspace_message(in_workspace, workspace_issue),
         )
     )
 
@@ -255,6 +270,7 @@ def inspect_pilot_readiness(
         waapi_transport=endpoint.transport if endpoint else None,
         waapi_issue=detection.issue,
         p4_connection=connection_info,
+        p4_workspace_issue=workspace_issue,
     )
 
 
@@ -323,6 +339,19 @@ def _p4_connection_message(info: P4ConnectionInfo | None) -> str:
         if value
     ]
     return "Connected to Perforce: " + " · ".join(parts)
+
+
+def _p4_workspace_message(
+    in_workspace: bool,
+    issue: P4WorkspaceIssue | None,
+) -> str:
+    if in_workspace:
+        return "Project root is mapped in the current Perforce workspace"
+    if issue == "connection-unavailable":
+        return "Workspace was not checked because Perforce is not connected"
+    if issue == "not-configured":
+        return "No Perforce workspace is selected for the current project"
+    return "Project root is not mapped in the selected Perforce workspace"
 
 
 def _executable_is_available(executable: str) -> bool:

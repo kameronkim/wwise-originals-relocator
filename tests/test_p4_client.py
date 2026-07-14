@@ -124,7 +124,7 @@ class P4ClientTests(unittest.TestCase):
         self.assertEqual("opened for edit\n+patched line\n", result.stdout)
 
     def test_query_connection_reads_effective_p4v_context(self) -> None:
-        completed = subprocess.CompletedProcess(
+        info_result = subprocess.CompletedProcess(
             ("p4",),
             0,
             stdout=(
@@ -135,16 +135,119 @@ class P4ClientTests(unittest.TestCase):
             ),
             stderr="",
         )
+        set_result = subprocess.CompletedProcess(
+            ("p4",),
+            0,
+            stdout=(
+                "P4PORT=ssl:perforce.example.com:1666 (set)\n"
+                "P4USER=audio.user (set)\n"
+                "P4CLIENT=audio-workspace (set)\n"
+            ),
+            stderr="",
+        )
 
-        with patch("subprocess.run", return_value=completed) as run:
+        with patch("subprocess.run", side_effect=(info_result, set_result)) as run:
             info = query_p4_connection(cwd="C:/Work/Audio")
 
         self.assertEqual("audio.user", info.connection.user)
         self.assertEqual("audio-workspace", info.connection.client)
         self.assertEqual("ssl:perforce.example.com:1666", info.connection.port)
         self.assertEqual("P4D/NTX64/2026.1", info.server_version)
-        self.assertEqual(("p4", "-ztag", "info"), run.call_args.args[0])
-        self.assertEqual("C:/Work/Audio", run.call_args.kwargs["cwd"])
+        self.assertEqual(("p4", "-ztag", "info"), run.call_args_list[0].args[0])
+        self.assertEqual("C:/Work/Audio", run.call_args_list[0].kwargs["cwd"])
+        self.assertEqual(("p4", "set"), run.call_args_list[1].args[0])
+
+    def test_query_connection_does_not_reuse_server_address_as_p4port(self) -> None:
+        info_result = subprocess.CompletedProcess(
+            ("p4",),
+            0,
+            stdout=(
+                "... userName developer\n"
+                "... clientName audio-workspace\n"
+                "... serverAddress localhost.localdomain:1666\n"
+            ),
+            stderr="",
+        )
+        set_result = subprocess.CompletedProcess(
+            ("p4",),
+            0,
+            stdout=(
+                "P4PORT=172.16.32.101:1666 (set)\n"
+                "P4USER=developer (set)\n"
+            ),
+            stderr="",
+        )
+
+        with patch("subprocess.run", side_effect=(info_result, set_result)):
+            info = query_p4_connection(cwd="C:/Work/Audio")
+
+        self.assertEqual("172.16.32.101:1666", info.connection.port)
+        self.assertEqual("localhost.localdomain:1666", info.server_address)
+
+    def test_query_connection_selects_unique_workspace_for_project(self) -> None:
+        info_result = subprocess.CompletedProcess(
+            ("p4",),
+            0,
+            stdout=(
+                "... userName developer\n"
+                "... clientName *unknown*\n"
+                "... serverAddress localhost.localdomain:1666\n"
+            ),
+            stderr="",
+        )
+        set_result = subprocess.CompletedProcess(
+            ("p4",),
+            0,
+            stdout=(
+                "P4PORT=172.16.32.101:1666 (set)\n"
+                "P4USER=developer (set)\n"
+            ),
+            stderr="",
+        )
+        clients_result = subprocess.CompletedProcess(
+            ("p4",),
+            0,
+            stdout=(
+                "... client audio-workspace\n"
+                "... Host test-host\n"
+                "... client other-workspace\n"
+                "... Host other-host\n"
+            ),
+            stderr="",
+        )
+        client_spec_result = subprocess.CompletedProcess(
+            ("p4",),
+            0,
+            stdout=(
+                "... Client audio-workspace\n"
+                "... Root /work/audio\n"
+            ),
+            stderr="",
+        )
+        where_result = subprocess.CompletedProcess(
+            ("p4",),
+            0,
+            stdout="//depot/project //audio-workspace/project /work/audio/project\n",
+            stderr="",
+        )
+
+        with patch(
+            "subprocess.run",
+            side_effect=(
+                info_result,
+                set_result,
+                clients_result,
+                client_spec_result,
+                where_result,
+            ),
+        ) as run, patch("socket.gethostname", return_value="test-host"):
+            info = query_p4_connection(cwd="/work/audio/project")
+
+        self.assertEqual("audio-workspace", info.connection.client)
+        self.assertEqual(("audio-workspace",), info.client_candidates)
+        self.assertIn("client", run.call_args_list[3].args[0])
+        self.assertIn("-c", run.call_args_list[4].args[0])
+        self.assertIn("audio-workspace", run.call_args_list[4].args[0])
 
 
 if __name__ == "__main__":

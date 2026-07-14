@@ -16,7 +16,7 @@ class GuiAssetTests(unittest.TestCase):
         index = (ASSET_ROOT / "index.html").read_text(encoding="utf-8")
 
         self.assertIn('href="styles.css?v=10"', index)
-        self.assertIn('src="app.js?v=10"', index)
+        self.assertIn('src="app.js?v=11"', index)
         self.assertTrue((ASSET_ROOT / "styles.css").is_file())
         self.assertTrue((ASSET_ROOT / "app.js").is_file())
 
@@ -53,6 +53,9 @@ class GuiAssetTests(unittest.TestCase):
         self.assertIn('id="p4-client"', index)
         self.assertIn("'detect_p4_connection'", script)
         self.assertIn("offlineTestMode", script)
+        self.assertIn("p4WorkspaceIssue", script)
+        self.assertIn("Workspace 선택 필요", script)
+        self.assertIn("프로젝트에 맞는 workspace를 자동으로 찾지 못했습니다", script)
         self.assertNotIn("Apply · Rollback 기능 없음", index)
         self.assertIn("환경 확인과 이동 계획까지는 프로젝트를 변경하지 않습니다", index)
         self.assertNotIn("설치나 시스템 설정 변경 없이", index)
