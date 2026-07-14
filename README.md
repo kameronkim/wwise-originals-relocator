@@ -10,7 +10,7 @@ the result against the filesystem, Perforce, and live Wwise objects.
 ## Download
 
 The current build is the
-[v0.1.0-rc.1 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.1):
+[v0.1.0-rc.2 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.2):
 
 - Windows x64 portable ZIP
 - macOS arm64 portable ZIP
@@ -29,6 +29,10 @@ together. The portable app does not install Python or other dependencies.
 
 The application does not install Wwise, Perforce, WebView2, or system web
 components.
+
+When launched from a P4V custom tool, the GUI imports the active `P4PORT`,
+`P4USER`, `P4CLIENT`, and `P4CHARSET` context. It reuses the existing Perforce
+login ticket and never stores a password or ticket.
 
 ## Operator workflow
 
@@ -63,7 +67,7 @@ apply, and rollback controls remain disabled in this mode.
 - Wwise External Project Changes must be reloaded manually before live
   validation.
 
-`v0.1.0-rc.1` remains a pre-release because a real multi-file Wwise and
+`v0.1.0-rc.2` remains a pre-release because a real multi-file Wwise and
 Perforce apply/validate/rollback pilot is still required before final
 `v0.1.0` approval.
 

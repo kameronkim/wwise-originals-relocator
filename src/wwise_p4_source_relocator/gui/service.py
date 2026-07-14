@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import subprocess
 import sys
 
 from .. import __version__
@@ -18,7 +19,12 @@ from ..models import (
     ScanResult,
     ValidationResult,
 )
-from ..p4_client import P4Client
+from ..p4_client import (
+    P4CommandError,
+    P4Client,
+    P4Connection,
+    query_p4_connection,
+)
 from ..pilot_project import find_wwise_console
 from ..planner import build_relocation_plan
 from ..preflight import P4WorkspaceProbe, validate_relocation_plan
@@ -49,6 +55,10 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "chapter": "CH04",
     "waapiUrl": "ws://127.0.0.1:8080/waapi",
     "p4Executable": "",
+    "p4Port": "",
+    "p4User": "",
+    "p4Client": "",
+    "p4Charset": "",
     "changelist": "",
     "offlineTestMode": False,
 }
@@ -118,8 +128,10 @@ class PortableGuiService:
             ..., ValidationResult
         ] = validate_live_wwise_manifest_at_url,
         rollbacker: Callable[..., ValidationResult] = rollback_manifest,
-        p4_client_factory: Callable[[str], P4Client] | None = None,
-        workspace_probe_factory: Callable[[str], P4WorkspaceProbe] | None = None,
+        p4_client_factory: Callable[[str, P4Connection], P4Client] | None = None,
+        workspace_probe_factory: (
+            Callable[[str, P4Connection], P4WorkspaceProbe] | None
+        ) = None,
     ) -> None:
         self.store = PortableSettingsStore(data_root)
         self._readiness_inspector = readiness_inspector
@@ -139,7 +151,7 @@ class PortableGuiService:
         self._planned_settings: tuple[str, ...] | None = None
 
     def initial_state(self) -> dict[str, object]:
-        settings = self.store.load()
+        settings = _with_environment_connection(self.store.load())
         detected_p4 = discover_p4_executable()
         if not settings["p4Executable"] and detected_p4:
             settings["p4Executable"] = detected_p4
@@ -155,6 +167,12 @@ class PortableGuiService:
                 "dataRoot": self.store.data_root.as_posix(),
                 "p4Executable": str(settings["p4Executable"]),
                 "p4Detected": bool(settings["p4Executable"]),
+                "p4Connection": _p4_connection(settings).to_dict(),
+                "p4ConnectionSource": (
+                    "p4v-environment"
+                    if P4Connection.from_environment().configured
+                    else "settings"
+                ),
                 "wwiseConsole": console.as_posix() if console else "",
                 "wwiseDetected": console is not None,
             },
@@ -174,6 +192,46 @@ class PortableGuiService:
             "operationHistory": operation_history,
         }
 
+    def detect_p4_connection(
+        self, values: Mapping[str, object]
+    ) -> dict[str, object]:
+        settings = dict(DEFAULT_SETTINGS)
+        settings.update(_normalize_settings(values))
+        executable = _p4_executable(settings)
+        project_root = _optional_project_root(settings)
+        connection = _p4_connection(settings)
+        try:
+            info = query_p4_connection(
+                executable=executable,
+                connection=connection,
+                cwd=project_root,
+            )
+        except (OSError, subprocess.SubprocessError, P4CommandError) as exc:
+            raise GuiServiceError(
+                "P4V/Perforce 연결 정보를 확인하지 못했습니다. P4V에서 올바른 "
+                "서버와 workspace로 로그인했는지 확인하세요."
+            ) from exc
+        resolved = info.connection
+        settings.update(
+            {
+                "p4Executable": executable,
+                "p4Port": resolved.port or "",
+                "p4User": resolved.user or "",
+                "p4Client": resolved.client or "",
+                "p4Charset": resolved.charset or "",
+            }
+        )
+        saved = self.store.save(settings)
+        return {
+            "settings": saved,
+            "connection": info.to_dict(),
+            "source": (
+                "p4v-environment"
+                if P4Connection.from_environment().configured
+                else "perforce-settings"
+            ),
+        }
+
     def get_operation_history(
         self, values: Mapping[str, object]
     ) -> dict[str, object]:
@@ -190,13 +248,16 @@ class PortableGuiService:
         settings = self.store.save(values)
         project_root = _project_root(settings)
         p4_executable = _p4_executable(settings)
+        p4_connection = _p4_connection(settings)
         configured_waapi_url = _required_setting(settings, "waapiUrl")
         waapi_host, waapi_port, waapi_path, waapi_secure = _waapi_endpoint(settings)
         offline_test_mode = _offline_test_mode(settings)
         readiness = self._readiness_inspector(
             project_root,
             p4_executable=p4_executable,
+            p4_connection=p4_connection,
             p4_available=True if offline_test_mode else None,
+            p4_connection_available=True if offline_test_mode else None,
             p4_workspace=True if offline_test_mode else None,
             waapi_host=waapi_host,
             waapi_port=waapi_port,
@@ -206,7 +267,7 @@ class PortableGuiService:
         )
         if offline_test_mode:
             readiness = _mark_perforce_skipped(readiness)
-        _save_detected_waapi_url(self.store, settings, readiness)
+        _save_detected_connections(self.store, settings, readiness)
         report_root = self._new_report_root("doctor")
         json_path = report_root / "readiness.json"
         markdown_path = report_root / "readiness.md"
@@ -228,13 +289,16 @@ class PortableGuiService:
         settings = self.store.save(values)
         project_root = _project_root(settings)
         p4_executable = _p4_executable(settings)
+        p4_connection = _p4_connection(settings)
         configured_waapi_url = _required_setting(settings, "waapiUrl")
         waapi_host, waapi_port, waapi_path, waapi_secure = _waapi_endpoint(settings)
         offline_test_mode = _offline_test_mode(settings)
         readiness = self._readiness_inspector(
             project_root,
             p4_executable=p4_executable,
+            p4_connection=p4_connection,
             p4_available=True if offline_test_mode else None,
+            p4_connection_available=True if offline_test_mode else None,
             p4_workspace=True if offline_test_mode else None,
             waapi_host=waapi_host,
             waapi_port=waapi_port,
@@ -255,7 +319,7 @@ class PortableGuiService:
         object_root = _required_setting(settings, "objectRoot")
         chapter = _required_setting(settings, "chapter")
         waapi_url = readiness.waapi_url or configured_waapi_url
-        _save_detected_waapi_url(self.store, settings, readiness)
+        _save_detected_connections(self.store, settings, readiness)
         try:
             scan = self._scanner(
                 project_root=project_root,
@@ -272,7 +336,7 @@ class PortableGuiService:
         probe = (
             LocalTestWorkspaceProbe()
             if offline_test_mode
-            else P4WorkspaceProbe(executable=p4_executable)
+            else self._workspace_probe_factory(p4_executable, p4_connection)
         )
         validation = self._plan_validator(plan, probe=probe)
         self._planned_plan = plan
@@ -357,6 +421,7 @@ class PortableGuiService:
             )
 
         p4_executable = _p4_executable(settings)
+        p4_connection = _p4_connection(settings)
         report_root = self._new_report_root("apply")
         manifest_path = report_root / "rollback-manifest.json"
         validation_path = report_root / "apply-validation.md"
@@ -367,8 +432,11 @@ class PortableGuiService:
                 only=selected,
                 changelist=changelist,
                 manifest_path=manifest_path,
-                p4=self._p4_client_factory(p4_executable),
-                probe=self._workspace_probe_factory(p4_executable),
+                p4=self._p4_client_factory(p4_executable, p4_connection),
+                probe=self._workspace_probe_factory(
+                    p4_executable,
+                    p4_connection,
+                ),
             )
         except ApplyError as exc:
             recovery = self._active_manifests(project_root)
@@ -426,7 +494,10 @@ class PortableGuiService:
                 "적용에 실패한 manifest입니다. 먼저 Rollback을 실행해 주세요."
             )
 
-        p4 = self._p4_client_factory(_p4_executable(settings))
+        p4 = self._p4_client_factory(
+            _p4_executable(settings),
+            _p4_connection(settings),
+        )
         local = self._applied_validator(manifest, p4=p4)
         try:
             live = self._live_validator(
@@ -533,7 +604,10 @@ class PortableGuiService:
             operation_paths = _manifest_operation_paths(manifest)
         except UnsafeProjectPath as exc:
             raise GuiServiceError(str(exc)) from exc
-        probe = self._workspace_probe_factory(_p4_executable(settings))
+        probe = self._workspace_probe_factory(
+            _p4_executable(settings),
+            _p4_connection(settings),
+        )
         try:
             opened_paths = [
                 path
@@ -642,7 +716,10 @@ class PortableGuiService:
                 operation_paths = _manifest_operation_paths(manifest)
             except UnsafeProjectPath as exc:
                 raise GuiServiceError(str(exc)) from exc
-            probe = self._workspace_probe_factory(_p4_executable(settings))
+            probe = self._workspace_probe_factory(
+                _p4_executable(settings),
+                _p4_connection(settings),
+            )
             try:
                 all_opened = all(
                     probe.is_opened(path) for path in operation_paths
@@ -659,7 +736,10 @@ class PortableGuiService:
 
         result = self._rollbacker(
             manifest,
-            p4=self._p4_client_factory(_p4_executable(settings)),
+            p4=self._p4_client_factory(
+                _p4_executable(settings),
+                _p4_connection(settings),
+            ),
             manifest_path=manifest_path,
         )
         report_root = self._new_report_root("rollback")
@@ -831,9 +911,43 @@ def _project_root(settings: Mapping[str, object]) -> Path:
     return Path(raw).expanduser().resolve()
 
 
+def _optional_project_root(settings: Mapping[str, object]) -> Path | None:
+    raw = _optional_setting(settings, "projectRoot")
+    if raw is None:
+        return None
+    root = Path(raw).expanduser().resolve()
+    return root if root.is_dir() else None
+
+
 def _p4_executable(settings: Mapping[str, object]) -> str:
     configured = str(settings.get("p4Executable") or "").strip()
     return configured or discover_p4_executable() or "p4"
+
+
+def _p4_connection(settings: Mapping[str, object]) -> P4Connection:
+    environment = P4Connection.from_environment()
+    return P4Connection(
+        port=_optional_setting(settings, "p4Port") or environment.port,
+        user=_optional_setting(settings, "p4User") or environment.user,
+        client=_optional_setting(settings, "p4Client") or environment.client,
+        charset=_optional_setting(settings, "p4Charset") or environment.charset,
+    )
+
+
+def _with_environment_connection(
+    settings: Mapping[str, object],
+) -> dict[str, object]:
+    merged = dict(settings)
+    environment = P4Connection.from_environment()
+    for key, value in (
+        ("p4Port", environment.port),
+        ("p4User", environment.user),
+        ("p4Client", environment.client),
+        ("p4Charset", environment.charset),
+    ):
+        if value:
+            merged[key] = value
+    return merged
 
 
 def _offline_test_mode(settings: Mapping[str, object]) -> bool:
@@ -858,17 +972,29 @@ def _changelist_setting(settings: Mapping[str, object]) -> str | None:
 
 
 def _plan_settings_signature(settings: Mapping[str, object]) -> tuple[str, ...]:
+    connection = _p4_connection(settings)
     return (
         str(_project_root(settings)),
         _required_setting(settings, "objectRoot"),
         _required_setting(settings, "chapter"),
         _p4_executable(settings),
+        connection.port or "",
+        connection.user or "",
+        connection.client or "",
+        connection.charset or "",
         "offline" if _offline_test_mode(settings) else "perforce",
     )
 
 
-def _live_p4_client(executable: str) -> P4Client:
-    return P4Client(executable=executable, dry_run=False)
+def _live_p4_client(
+    executable: str,
+    connection: P4Connection,
+) -> P4Client:
+    return P4Client(
+        executable=executable,
+        connection=connection,
+        dry_run=False,
+    )
 
 
 def _manifest_summary(
@@ -1043,7 +1169,7 @@ def _mark_perforce_skipped(readiness: PilotReadiness) -> PilotReadiness:
             "pass",
             "Skipped in local test mode; no Perforce command was executed",
         )
-        if check.name in {"p4-cli", "p4-workspace"}
+        if check.name in {"p4-cli", "p4-connection", "p4-workspace"}
         else check
         for check in readiness.checks
     )
@@ -1053,6 +1179,7 @@ def _mark_perforce_skipped(readiness: PilotReadiness) -> PilotReadiness:
         waapi_url=readiness.waapi_url,
         waapi_transport=readiness.waapi_transport,
         waapi_issue=readiness.waapi_issue,
+        p4_connection=readiness.p4_connection,
     )
 
 
@@ -1076,14 +1203,26 @@ def _waapi_endpoint(settings: Mapping[str, object]) -> tuple[str, int, str, bool
     return parsed.hostname, port, path, secure
 
 
-def _save_detected_waapi_url(
+def _save_detected_connections(
     store: PortableSettingsStore,
     settings: Mapping[str, object],
     readiness: PilotReadiness,
 ) -> None:
-    if not readiness.waapi_url or readiness.waapi_url == settings.get("waapiUrl"):
-        return
-    store.save({**settings, "waapiUrl": readiness.waapi_url})
+    updated = dict(settings)
+    if readiness.waapi_url:
+        updated["waapiUrl"] = readiness.waapi_url
+    if readiness.p4_connection:
+        connection = readiness.p4_connection.connection
+        updated.update(
+            {
+                "p4Port": connection.port or "",
+                "p4User": connection.user or "",
+                "p4Client": connection.client or "",
+                "p4Charset": connection.charset or "",
+            }
+        )
+    if updated != dict(settings):
+        store.save(updated)
 
 
 def _required_setting(settings: Mapping[str, object], key: str) -> str:
