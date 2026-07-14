@@ -204,7 +204,9 @@ function renderReadiness(result) {
     element('p4-user').value = result.p4Connection.user || element('p4-user').value;
     element('p4-client').value = result.p4Connection.client || element('p4-client').value;
     element('p4-charset').value = result.p4Connection.charset || element('p4-charset').value;
-    element('p4-status').textContent = '연결됨';
+    element('p4-status').textContent = result.p4Connection.client
+      ? '연결됨'
+      : 'Workspace 선택 필요';
     element('p4-detail').textContent = p4ConnectionSummary() || 'Perforce 연결 확인됨';
   }
   const connection = result.waapiConnection;
@@ -236,9 +238,12 @@ function renderReadiness(result) {
     const waapiMessage = check.name === 'waapi-server'
       ? waapiReadinessMessage(result, check)
       : null;
+    const p4WorkspaceMessage = check.name === 'p4-workspace'
+      ? p4WorkspaceReadinessMessage(result, check)
+      : null;
     message.textContent = skippedPerforce
       ? '로컬 테스트 모드에서는 이 Perforce 점검을 건너뜁니다.'
-      : (waapiMessage || readinessMessages[check.name]?.[check.status] || check.message);
+      : (p4WorkspaceMessage || waapiMessage || readinessMessages[check.name]?.[check.status] || check.message);
     copy.append(title, message);
     item.append(symbol, copy);
     list.append(item);
@@ -255,6 +260,19 @@ function renderReadiness(result) {
     report.textContent = `환경 보고서: ${result.reports.markdown}`;
     report.hidden = false;
   }
+}
+
+function p4WorkspaceReadinessMessage(result, check) {
+  if (check.status === 'pass') {
+    return readinessMessages['p4-workspace'].pass;
+  }
+  if (result.p4WorkspaceIssue === 'connection-unavailable') {
+    return 'Perforce 서버 연결을 먼저 확인한 뒤 다시 실행하세요.';
+  }
+  if (result.p4WorkspaceIssue === 'not-configured') {
+    return '프로젝트에 맞는 workspace를 자동으로 찾지 못했습니다. P4V에서 workspace를 선택하거나 고급 연결 설정에 입력하세요.';
+  }
+  return '선택한 workspace에 이 Wwise 프로젝트가 매핑되어 있지 않습니다.';
 }
 
 function waapiReadinessMessage(result, check) {
@@ -684,11 +702,18 @@ async function detectP4Connection({quiet = false} = {}) {
     applySettings(result.settings || {});
     state.system.p4Detected = true;
     state.system.p4Executable = result.settings?.p4Executable || state.system.p4Executable;
-    element('p4-status').textContent = result.source === 'p4v-environment'
-      ? 'P4V 연결 감지됨'
-      : 'Perforce 연결 감지됨';
+    element('p4-status').textContent = result.workspaceConfigured
+      ? (result.source === 'p4v-environment' ? 'P4V 연결 감지됨' : 'Perforce 연결 감지됨')
+      : 'Workspace 선택 필요';
     element('p4-detail').textContent = p4ConnectionSummary() || '연결 정보 확인됨';
-    if (!quiet) setBusy(false, 'P4V/Perforce 연결 정보를 불러왔습니다');
+    if (!quiet) {
+      setBusy(
+        false,
+        result.workspaceConfigured
+          ? 'P4V/Perforce 연결 정보를 불러왔습니다'
+          : '서버 연결은 확인했지만 workspace 선택이 필요합니다',
+      );
+    }
   } catch (error) {
     if (!quiet) showError(error.message);
   }
@@ -966,7 +991,7 @@ function loadPreview() {
   });
   renderSystem({
     platform: 'Windows',
-    appVersion: '0.1.0',
+    appVersion: '0.1.0rc3',
     p4Detected: true,
     p4Executable: 'C:\\Program Files\\Perforce\\p4.exe',
     p4Connection: {

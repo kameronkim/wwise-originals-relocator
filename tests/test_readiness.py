@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from wwise_p4_source_relocator.p4_client import P4Connection
+from wwise_p4_source_relocator.p4_client import P4Connection, P4ConnectionInfo
 from wwise_p4_source_relocator.readiness import (
     _p4_contains_project,
     inspect_pilot_readiness,
@@ -136,6 +136,82 @@ class PilotReadinessTests(unittest.TestCase):
                 ),
                 run.call_args.args[0],
             )
+
+    def test_readiness_uses_the_connection_resolved_by_p4_info(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory) / "WwiseProject"
+            shutil.copytree(FIXTURE_ROOT, project_root)
+            (project_root / "WwiseProject.wproj").write_text(
+                "<WwiseDocument/>", encoding="utf-8"
+            )
+            resolved = P4Connection(
+                port="perforce.example.com:1666",
+                user="audio.user",
+                client="audio-workspace",
+            )
+
+            with (
+                patch(
+                    "wwise_p4_source_relocator.readiness.query_p4_connection",
+                    return_value=P4ConnectionInfo(resolved),
+                ),
+                patch(
+                    "wwise_p4_source_relocator.readiness._p4_contains_project",
+                    return_value=True,
+                ) as contains,
+            ):
+                readiness = inspect_pilot_readiness(
+                    project_root,
+                    p4_available=True,
+                    waapi_client_available=True,
+                    waapi_reachable=True,
+                )
+
+            self.assertTrue(readiness.ready)
+            self.assertEqual(
+                resolved,
+                contains.call_args.kwargs["connection"],
+            )
+
+    def test_readiness_distinguishes_a_missing_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory) / "WwiseProject"
+            shutil.copytree(FIXTURE_ROOT, project_root)
+            (project_root / "WwiseProject.wproj").write_text(
+                "<WwiseDocument/>", encoding="utf-8"
+            )
+            connected_without_client = P4ConnectionInfo(
+                P4Connection(
+                    port="perforce.example.com:1666",
+                    user="audio.user",
+                )
+            )
+
+            with patch(
+                "wwise_p4_source_relocator.readiness.query_p4_connection",
+                return_value=connected_without_client,
+            ):
+                readiness = inspect_pilot_readiness(
+                    project_root,
+                    p4_available=True,
+                    waapi_client_available=True,
+                    waapi_reachable=True,
+                )
+
+            workspace = next(
+                check
+                for check in readiness.checks
+                if check.name == "p4-workspace"
+            )
+            connection_status = next(
+                check.status
+                for check in readiness.checks
+                if check.name == "p4-connection"
+            )
+            self.assertEqual("pass", connection_status)
+            self.assertEqual("fail", workspace.status)
+            self.assertIn("No Perforce workspace", workspace.message)
+            self.assertEqual("not-configured", readiness.p4_workspace_issue)
 
     def test_ready_project_passes_all_checks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

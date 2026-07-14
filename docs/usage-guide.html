@@ -424,7 +424,7 @@
             <div class="connection-flow">
               <article class="connection-node"><span class="card-icon"><svg class="icon"><use href="#i-monitor"></use></svg></span><strong>1. P4V에서 로그인</strong><p>대상 서버와 workspace를 선택합니다.</p></article>
               <span class="flow-arrow"><svg class="icon"><use href="#i-arrow"></use></svg></span>
-              <article class="connection-node"><span class="card-icon"><svg class="icon"><use href="#i-route"></use></svg></span><strong>2. 연결 불러오기</strong><p>프로젝트 선택 시 자동 확인하거나 고급 설정의 버튼을 누릅니다.</p></article>
+              <article class="connection-node"><span class="card-icon"><svg class="icon"><use href="#i-route"></use></svg></span><strong>2. 연결 불러오기</strong><p>프로젝트 선택 시 실제 P4PORT를 확인하고, P4CLIENT가 없으면 프로젝트에 맞는 workspace 하나를 자동으로 찾습니다.</p></article>
               <span class="flow-arrow"><svg class="icon"><use href="#i-arrow"></use></svg></span>
               <article class="connection-node"><span class="card-icon"><svg class="icon"><use href="#i-checks"></use></svg></span><strong>3. 환경 확인</strong><p>서버 연결과 프로젝트 mapping이 모두 통과하는지 확인합니다.</p></article>
             </div>
@@ -505,7 +505,7 @@
           <div class="faq-list">
             <details class="faq"><summary>운영체제가 확인되지 않은 앱이라고 표시함 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>개발용 artifact에는 Windows 코드 서명 또는 macOS notarization이 없을 수 있습니다. 보안 정책을 우회하지 말고 배포 담당자에게 승인된 빌드인지 확인하세요.</p></div></details>
             <details class="faq"><summary>Wwise 연결을 통과하지 못함 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>대상 프로젝트와 WAAPI가 활성화되어 있는지 확인하고 설정창이나 저장 확인창을 닫으세요. 프로젝트 불일치가 표시되면 선택한 폴더의 프로젝트를 Wwise에서 다시 엽니다.</p></div></details>
-            <details class="faq"><summary>P4V는 연결되지만 Perforce 점검이 실패함 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>P4V에서 대상 서버와 workspace를 확인하고 <strong>고급 연결 설정 → 연결 불러오기</strong>를 누르세요. 연결을 찾지 못하면 <code>p4.exe</code>를 직접 선택하거나 P4V의 <strong>Tools → Manage Tools</strong>에 앱을 등록해 실행합니다.</p></div></details>
+            <details class="faq"><summary>P4V는 연결되지만 Perforce 점검이 실패함 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p><strong>Workspace 선택 필요</strong>가 표시되면 P4V에서 이 프로젝트가 포함된 workspace를 선택한 뒤 <strong>고급 연결 설정 → 연결 불러오기</strong>를 누르세요. 서버 연결 실패와 workspace 미선택은 별도 항목으로 표시됩니다. 계속 연결을 찾지 못하면 <code>p4.exe</code>를 직접 선택하거나 P4V의 <strong>Tools → Manage Tools</strong>에 앱을 등록해 실행합니다.</p></div></details>
             <details class="faq"><summary>이동 계획 만들기가 오래 걸림 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>현재 버전은 WAAPI 연결과 source 조회에 제한 시간을 적용합니다. 계속 대기한다면 앱을 닫고 최신 버전으로 다시 실행한 뒤 환경 확인부터 진행하세요.</p></div></details>
             <details class="faq"><summary>적용 후 Wwise에 이전 경로가 보임 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>External Project Changes에서 affected Work Unit을 다시 불러온 뒤 <strong>Wwise 반영 확인</strong>을 누르세요. 계속 실패하면 보고서를 확인하고 P4V 마감 전 Rollback을 진행합니다.</p></div></details>
             <details class="faq"><summary>지원 요청에 필요한 정보 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><ul><li>화면에 표시된 실패 항목과 메시지</li><li><code>data/logs/relocator.log</code></li><li><code>VERSION.txt</code></li><li>해당 작업의 <code>data/reports</code> 폴더</li></ul></div></details>
