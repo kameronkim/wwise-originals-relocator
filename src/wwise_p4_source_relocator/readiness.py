@@ -7,6 +7,13 @@ import shutil
 import subprocess
 from typing import Literal
 
+from .p4_client import (
+    P4CommandError,
+    P4Connection,
+    P4ConnectionInfo,
+    p4_result_has_error,
+    query_p4_connection,
+)
 from .waapi_transport import (
     WaapiDetection,
     WaapiEndpoint,
@@ -36,6 +43,7 @@ class PilotReadiness:
     waapi_url: str | None = None
     waapi_transport: str | None = None
     waapi_issue: str | None = None
+    p4_connection: P4ConnectionInfo | None = None
 
     @property
     def ready(self) -> bool:
@@ -53,6 +61,9 @@ class PilotReadiness:
             "checks": [check.to_dict() for check in self.checks],
             "waapiConnection": connection,
             "waapiIssue": self.waapi_issue,
+            "p4Connection": (
+                self.p4_connection.to_dict() if self.p4_connection else None
+            ),
         }
 
 
@@ -60,7 +71,9 @@ def inspect_pilot_readiness(
     project_root: str | Path,
     *,
     p4_executable: str = "p4",
+    p4_connection: P4Connection | None = None,
     p4_available: bool | None = None,
+    p4_connection_available: bool | None = None,
     p4_workspace: bool | None = None,
     waapi_client_available: bool | None = None,
     waapi_reachable: bool | None = None,
@@ -138,10 +151,40 @@ def inspect_pilot_readiness(
             "p4 CLI is available" if detected_p4 else "p4 CLI is not available",
         )
     )
+    effective_connection = p4_connection or P4Connection()
+    connection_info: P4ConnectionInfo | None = None
+    if p4_connection_available is None:
+        if detected_p4 and root_exists:
+            try:
+                connection_info = query_p4_connection(
+                    executable=p4_executable,
+                    connection=effective_connection,
+                    cwd=root,
+                )
+                connected = True
+            except (OSError, subprocess.SubprocessError, P4CommandError):
+                connected = False
+        else:
+            connected = False
+    else:
+        connected = p4_connection_available
+    checks.append(
+        _check(
+            "p4-connection",
+            connected,
+            _p4_connection_message(connection_info)
+            if connected
+            else "Could not connect to the configured Perforce server",
+        )
+    )
     if p4_workspace is None:
         in_workspace = (
-            _p4_contains_project(root, executable=p4_executable)
-            if detected_p4 and root_exists
+            _p4_contains_project(
+                root,
+                executable=p4_executable,
+                connection=effective_connection,
+            )
+            if detected_p4 and connected and root_exists
             else False
         )
     else:
@@ -211,6 +254,7 @@ def inspect_pilot_readiness(
         waapi_url=endpoint.url if endpoint else None,
         waapi_transport=endpoint.transport if endpoint else None,
         waapi_issue=detection.issue,
+        p4_connection=connection_info,
     )
 
 
@@ -237,18 +281,48 @@ def _check(name: str, passed: bool, message: str) -> ReadinessCheck:
     return ReadinessCheck(name, "pass" if passed else "fail", message)
 
 
-def _p4_contains_project(project_root: Path, *, executable: str = "p4") -> bool:
+def _p4_contains_project(
+    project_root: Path,
+    *,
+    executable: str = "p4",
+    connection: P4Connection | None = None,
+) -> bool:
     project_file = next(project_root.glob("*.wproj"), project_root)
+    effective_connection = connection or P4Connection()
     try:
         result = subprocess.run(
-            (executable, "where", str(project_file)),
+            (
+                executable,
+                *effective_connection.global_options(),
+                "where",
+                str(project_file),
+            ),
             capture_output=True,
             text=True,
             check=False,
         )
     except OSError:
         return False
-    return result.returncode == 0 and "not in client view" not in result.stdout
+    return (
+        not p4_result_has_error(result)
+        and "not in client view" not in result.stdout
+    )
+
+
+def _p4_connection_message(info: P4ConnectionInfo | None) -> str:
+    if info is None:
+        return "Perforce connection is available"
+    connection = info.connection
+    parts = [
+        value
+        for value in (
+            connection.port,
+            connection.user,
+            connection.client,
+        )
+        if value
+    ]
+    return "Connected to Perforce: " + " · ".join(parts)
 
 
 def _executable_is_available(executable: str) -> bool:

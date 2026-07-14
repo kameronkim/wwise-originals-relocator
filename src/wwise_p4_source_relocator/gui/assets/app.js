@@ -24,6 +24,7 @@ const checkLabels = {
   'originals-wav': 'Originals WAV',
   'wwu-sources': 'Work Unit source',
   'p4-cli': 'Perforce CLI',
+  'p4-connection': 'P4V 연결',
   'p4-workspace': 'Perforce workspace',
   'waapi-client': 'WAAPI client',
   'waapi-server': 'Wwise 연결',
@@ -49,6 +50,10 @@ const readinessMessages = {
   'p4-cli': {
     pass: '기존 Perforce CLI를 사용할 수 있습니다.',
     fail: 'p4.exe를 찾지 못했습니다. 고급 설정에서 직접 선택하세요.',
+  },
+  'p4-connection': {
+    pass: 'P4V와 같은 Perforce 서버, 사용자와 workspace를 사용할 수 있습니다.',
+    fail: 'P4V에서 올바른 연결로 로그인한 뒤 연결 불러오기를 실행하세요.',
   },
   'p4-workspace': {
     pass: '프로젝트가 현재 Perforce workspace에 포함되어 있습니다.',
@@ -106,6 +111,10 @@ function settingsFromForm() {
     chapter: element('chapter').value.trim(),
     waapiUrl: element('waapi-url').value.trim(),
     p4Executable: element('p4-executable').value.trim(),
+    p4Port: element('p4-port').value.trim(),
+    p4User: element('p4-user').value.trim(),
+    p4Client: element('p4-client').value.trim(),
+    p4Charset: element('p4-charset').value.trim(),
     changelist: element('changelist').value.trim(),
     offlineTestMode: element('offline-test-mode').checked,
   };
@@ -117,6 +126,10 @@ function applySettings(settings) {
   element('chapter').value = settings.chapter || 'CH04';
   element('waapi-url').value = settings.waapiUrl || 'ws://127.0.0.1:8080/waapi';
   element('p4-executable').value = settings.p4Executable || '';
+  element('p4-port').value = settings.p4Port || '';
+  element('p4-user').value = settings.p4User || '';
+  element('p4-client').value = settings.p4Client || '';
+  element('p4-charset').value = settings.p4Charset || '';
   element('changelist').value = settings.changelist || '';
   element('offline-test-mode').checked = settings.offlineTestMode === true;
   updateProjectState();
@@ -130,6 +143,14 @@ function updateProjectState() {
   badge.className = `panel-state ${selected ? 'ready' : 'neutral'}`;
 }
 
+function p4ConnectionSummary() {
+  return [
+    element('p4-port')?.value.trim(),
+    element('p4-user')?.value.trim(),
+    element('p4-client')?.value.trim(),
+  ].filter(Boolean).join(' · ');
+}
+
 function renderSystem(system) {
   state.system = {...system};
   element('app-version').textContent = system.appVersion ? `v${system.appVersion}` : 'v—';
@@ -137,6 +158,12 @@ function renderSystem(system) {
   element('wwise-status').textContent = system.wwiseDetected ? '감지됨' : '연결 확인 필요';
   element('wwise-detail').textContent = system.wwiseConsole || 'Wwise 실행 후 환경 확인';
   element('data-detail').textContent = system.dataRoot || '앱 폴더의 data';
+  const connection = system.p4Connection || {};
+  if (connection.port || connection.user || connection.client) {
+    element('p4-detail').textContent = [connection.port, connection.user, connection.client]
+      .filter(Boolean)
+      .join(' · ');
+  }
   updateOfflineModePresentation();
 }
 
@@ -144,17 +171,24 @@ function updateOfflineModePresentation() {
   const enabled = element('offline-test-mode').checked;
   const mutationLocked = Boolean(state.activeOperation);
   element('p4-executable').disabled = enabled || mutationLocked;
+  element('p4-port').disabled = enabled || mutationLocked;
+  element('p4-user').disabled = enabled || mutationLocked;
+  element('p4-client').disabled = enabled || mutationLocked;
+  element('p4-charset').disabled = enabled || mutationLocked;
   element('changelist').disabled = enabled || mutationLocked;
   element('offline-test-mode').disabled = mutationLocked;
   element('project-root').disabled = mutationLocked;
   element('choose-p4').disabled = enabled || mutationLocked || state.busy || !state.bridgeReady;
+  element('detect-p4-connection').disabled = enabled || mutationLocked || state.busy || !state.bridgeReady;
   element('choose-project').disabled = mutationLocked || state.busy || !state.bridgeReady;
   element('p4-status').textContent = enabled
     ? '테스트에서 제외'
-    : (state.system.p4Detected ? '감지됨' : '찾지 못함');
+    : (state.system.p4Detected
+      ? (state.system.p4ConnectionSource === 'p4v-environment' ? 'P4V 환경 감지됨' : '감지됨')
+      : '찾지 못함');
   element('p4-detail').textContent = enabled
     ? '로컬 읽기 전용 점검만 실행합니다'
-    : (state.system.p4Executable || '직접 선택할 수 있습니다');
+    : (p4ConnectionSummary() || state.system.p4Executable || '직접 선택할 수 있습니다');
   element('doctor-step-detail').textContent = enabled
     ? 'Wwise · 로컬 파일 · WAAPI'
     : 'Wwise · P4 · WAAPI';
@@ -165,6 +199,14 @@ function updateOfflineModePresentation() {
 }
 
 function renderReadiness(result) {
+  if (result.p4Connection) {
+    element('p4-port').value = result.p4Connection.port || element('p4-port').value;
+    element('p4-user').value = result.p4Connection.user || element('p4-user').value;
+    element('p4-client').value = result.p4Connection.client || element('p4-client').value;
+    element('p4-charset').value = result.p4Connection.charset || element('p4-charset').value;
+    element('p4-status').textContent = '연결됨';
+    element('p4-detail').textContent = p4ConnectionSummary() || 'Perforce 연결 확인됨';
+  }
   const connection = result.waapiConnection;
   if (connection?.url) {
     element('waapi-url').value = connection.url;
@@ -190,7 +232,7 @@ function renderReadiness(result) {
     title.textContent = checkLabels[check.name] || check.name;
     const message = document.createElement('p');
     const skippedPerforce = result.offlineTestMode
-      && ['p4-cli', 'p4-workspace'].includes(check.name);
+      && ['p4-cli', 'p4-connection', 'p4-workspace'].includes(check.name);
     const waapiMessage = check.name === 'waapi-server'
       ? waapiReadinessMessage(result, check)
       : null;
@@ -526,6 +568,7 @@ function setBusy(busy, message = '준비됨') {
     || Boolean(state.activeOperation);
   element('choose-project').disabled = busy || !state.bridgeReady || Boolean(state.activeOperation);
   element('choose-p4').disabled = busy || !state.bridgeReady || element('offline-test-mode').checked || Boolean(state.activeOperation);
+  element('detect-p4-connection').disabled = busy || !state.bridgeReady || element('offline-test-mode').checked || Boolean(state.activeOperation);
   element('refresh-history').disabled = busy || !state.bridgeReady;
   updateApplyButtons();
 }
@@ -624,9 +667,30 @@ async function chooseProject() {
       resetResults();
       setStep('project', 'done');
       await refreshOperationHistory({reportErrors: false});
+      if (!element('offline-test-mode').checked && state.system.p4Detected) {
+        await detectP4Connection({quiet: true});
+      }
     }
   } catch (error) {
     showError(error.message);
+  }
+}
+
+async function detectP4Connection({quiet = false} = {}) {
+  if (element('offline-test-mode').checked) return;
+  if (!quiet) clearError();
+  try {
+    const result = await invoke('detect_p4_connection', settingsFromForm());
+    applySettings(result.settings || {});
+    state.system.p4Detected = true;
+    state.system.p4Executable = result.settings?.p4Executable || state.system.p4Executable;
+    element('p4-status').textContent = result.source === 'p4v-environment'
+      ? 'P4V 연결 감지됨'
+      : 'Perforce 연결 감지됨';
+    element('p4-detail').textContent = p4ConnectionSummary() || '연결 정보 확인됨';
+    if (!quiet) setBusy(false, 'P4V/Perforce 연결 정보를 불러왔습니다');
+  } catch (error) {
+    if (!quiet) showError(error.message);
   }
 }
 
@@ -893,6 +957,10 @@ function loadPreview() {
     chapter: 'CH04',
     waapiUrl: 'ws://127.0.0.1:8080/waapi',
     p4Executable: 'C:\\Program Files\\Perforce\\p4.exe',
+    p4Port: 'ssl:perforce.example.com:1666',
+    p4User: 'audio.user',
+    p4Client: 'audio-workspace',
+    p4Charset: 'utf8',
     changelist: '123456',
     offlineTestMode: false,
   });
@@ -901,6 +969,12 @@ function loadPreview() {
     appVersion: '0.1.0',
     p4Detected: true,
     p4Executable: 'C:\\Program Files\\Perforce\\p4.exe',
+    p4Connection: {
+      port: 'ssl:perforce.example.com:1666',
+      user: 'audio.user',
+      client: 'audio-workspace',
+      charset: 'utf8',
+    },
     wwiseDetected: true,
     wwiseConsole: 'WwiseConsole.exe',
     dataRoot: 'WwiseRelocator\\data',
@@ -971,6 +1045,7 @@ function loadPreview() {
 
 element('choose-project').addEventListener('click', chooseProject);
 element('choose-p4').addEventListener('click', chooseP4);
+element('detect-p4-connection').addEventListener('click', detectP4Connection);
 element('run-doctor').addEventListener('click', runDoctor);
 element('run-plan').addEventListener('click', runPlan);
 element('run-apply').addEventListener('click', runApply);
