@@ -13,6 +13,28 @@ Target: `v0.1.0`
 - Complete and record one real multi-file Wwise and Perforce
   apply/validate/rollback pilot before creating the final `v0.1.0` tag.
 
+## [0.1.0-rc.2] - 2026-07-14
+
+### Added
+
+- P4V connection import for server, user, workspace, and charset settings.
+- Explicit Perforce connection validation and project mapping diagnostics.
+- A redesigned offline usage guide with responsive navigation, status cards,
+  workflow diagrams, theme controls, and screen-focused troubleshooting.
+
+### Fixed
+
+- Prevented pywebview from recursively inspecting the native Windows window,
+  which could stall the JavaScript bridge and grow the log continuously.
+- Limited portable GUI logs with rotation to prevent unbounded log growth.
+
+### Validation status
+
+- Automated P4V connection, GUI service, readiness, portable packaging, and
+  usage-guide checks pass on the release source.
+- A real multi-file Wwise and Perforce pilot remains outstanding; this build is
+  a release candidate and is not the final `v0.1.0` release.
+
 ## [0.1.0-rc.1] - 2026-07-14
 
 ### Added

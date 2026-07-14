@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from wwise_p4_source_relocator.p4_client import P4Connection
 from wwise_p4_source_relocator.readiness import (
     _p4_contains_project,
     inspect_pilot_readiness,
@@ -102,6 +103,40 @@ class PilotReadinessTests(unittest.TestCase):
 
             self.assertEqual("/tools/p4", run.call_args.args[0][0])
 
+    def test_workspace_probe_uses_explicit_p4v_connection(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project_root = Path(directory)
+            project_file = project_root / "Pilot.wproj"
+            project_file.write_text("<WwiseDocument/>", encoding="utf-8")
+            connection = P4Connection(
+                port="ssl:perforce.example.com:1666",
+                user="audio.user",
+                client="audio-workspace",
+            )
+
+            with patch("wwise_p4_source_relocator.readiness.subprocess.run") as run:
+                run.return_value.returncode = 0
+                run.return_value.stdout = "mapped"
+
+                self.assertTrue(
+                    _p4_contains_project(project_root, connection=connection)
+                )
+
+            self.assertEqual(
+                (
+                    "p4",
+                    "-p",
+                    "ssl:perforce.example.com:1666",
+                    "-u",
+                    "audio.user",
+                    "-c",
+                    "audio-workspace",
+                    "where",
+                    str(project_file),
+                ),
+                run.call_args.args[0],
+            )
+
     def test_ready_project_passes_all_checks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             project_root = Path(directory) / "WwiseProject"
@@ -113,6 +148,7 @@ class PilotReadinessTests(unittest.TestCase):
             readiness = inspect_pilot_readiness(
                 project_root,
                 p4_available=True,
+                p4_connection_available=True,
                 p4_workspace=True,
                 waapi_client_available=True,
                 waapi_reachable=True,
@@ -133,6 +169,7 @@ class PilotReadinessTests(unittest.TestCase):
             readiness = inspect_pilot_readiness(
                 project_root,
                 p4_available=False,
+                p4_connection_available=False,
                 p4_workspace=False,
                 waapi_client_available=False,
                 waapi_reachable=False,
@@ -148,6 +185,7 @@ class PilotReadinessTests(unittest.TestCase):
                     "originals-wav",
                     "wwu-sources",
                     "p4-cli",
+                    "p4-connection",
                     "p4-workspace",
                     "waapi-client",
                     "waapi-server",

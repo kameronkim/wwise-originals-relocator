@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="Wwise Originals Relocator portable desktop interface">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="styles.css?v=9">
+  <link rel="stylesheet" href="styles.css?v=10">
   <title>Wwise Originals Relocator</title>
 </head>
 <body>
@@ -100,6 +100,29 @@
                   <input id="p4-executable" type="text" placeholder="자동 감지">
                   <button id="choose-p4" class="text-button" type="button">직접 선택</button>
                 </div>
+              </label>
+              <div class="wide-field p4v-connection-heading">
+                <div>
+                  <strong>P4V 연결</strong>
+                  <small>현재 P4V/Perforce 환경의 서버, 사용자와 workspace를 불러옵니다.</small>
+                </div>
+                <button id="detect-p4-connection" class="text-button" type="button">연결 불러오기</button>
+              </div>
+              <label>
+                <span>서버 (P4PORT)</span>
+                <input id="p4-port" type="text" placeholder="ssl:server:1666">
+              </label>
+              <label>
+                <span>사용자 (P4USER)</span>
+                <input id="p4-user" type="text" placeholder="자동 감지">
+              </label>
+              <label>
+                <span>Workspace (P4CLIENT)</span>
+                <input id="p4-client" type="text" placeholder="자동 감지">
+              </label>
+              <label>
+                <span>문자셋 (P4CHARSET)</span>
+                <input id="p4-charset" type="text" placeholder="서버 기본값">
               </label>
               <label>
                 <span>Perforce changelist 번호</span>
@@ -260,6 +283,6 @@
       <span id="app-version">v—</span>
     </footer>
   </div>
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>

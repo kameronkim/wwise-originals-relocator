@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from wwise_p4_source_relocator import __version__
 from wwise_p4_source_relocator.applier import ApplyError
@@ -24,6 +25,7 @@ from wwise_p4_source_relocator.models import (
     ValidationIssue,
     ValidationResult,
 )
+from wwise_p4_source_relocator.p4_client import P4Connection, P4ConnectionInfo
 from wwise_p4_source_relocator.readiness import PilotReadiness, ReadinessCheck
 from wwise_p4_source_relocator.report import (
     read_rollback_manifest,
@@ -272,6 +274,62 @@ class PortableGuiServiceTests(unittest.TestCase):
             self.assertEqual(__version__, state["system"]["appVersion"])
             self.assertEqual([], state["operationHistory"]["entries"])
 
+    def test_initial_state_imports_connection_exported_by_p4v(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.make_service(Path(directory) / "data")
+            service.store.save(
+                {
+                    **DEFAULT_SETTINGS,
+                    "p4Port": "old-server:1666",
+                    "p4User": "old.user",
+                    "p4Client": "old-workspace",
+                }
+            )
+            with patch.dict(
+                "os.environ",
+                {
+                    "P4PORT": "ssl:perforce.example.com:1666",
+                    "P4USER": "audio.user",
+                    "P4CLIENT": "audio-workspace",
+                    "P4CHARSET": "utf8",
+                },
+            ):
+                state = service.initial_state()
+
+            self.assertEqual(
+                "ssl:perforce.example.com:1666",
+                state["settings"]["p4Port"],
+            )
+            self.assertEqual("audio.user", state["settings"]["p4User"])
+            self.assertEqual("audio-workspace", state["settings"]["p4Client"])
+            self.assertEqual("p4v-environment", state["system"]["p4ConnectionSource"])
+
+    def test_detect_p4_connection_persists_non_secret_context(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(root / "data")
+            info = P4ConnectionInfo(
+                P4Connection(
+                    port="ssl:perforce.example.com:1666",
+                    user="audio.user",
+                    client="audio-workspace",
+                    charset="utf8",
+                ),
+                server_version="P4D/NTX64/2026.1",
+            )
+            with patch(
+                "wwise_p4_source_relocator.gui.service.query_p4_connection",
+                return_value=info,
+            ) as query:
+                result = service.detect_p4_connection(self.settings(project_root))
+
+            self.assertEqual("audio-workspace", result["settings"]["p4Client"])
+            self.assertEqual("audio.user", service.store.load()["p4User"])
+            self.assertNotIn("password", service.store.settings_path.read_text())
+            self.assertEqual(project_root.resolve(), query.call_args.kwargs["cwd"])
+
     def test_operation_history_is_sorted_and_filtered_to_selected_project(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -350,8 +408,8 @@ class PortableGuiServiceTests(unittest.TestCase):
                 root / "data",
                 applier=fake_apply,
                 rollbacker=fake_rollback,
-                p4_client_factory=lambda _: object(),
-                workspace_probe_factory=lambda _: object(),
+                p4_client_factory=lambda *_: object(),
+                workspace_probe_factory=lambda *_: object(),
             )
             settings = {
                 **self.settings(project_root),
@@ -383,8 +441,8 @@ class PortableGuiServiceTests(unittest.TestCase):
                 scanner=scan_two,
                 applier=fake_apply,
                 rollbacker=fake_rollback,
-                p4_client_factory=lambda _: object(),
-                workspace_probe_factory=lambda _: object(),
+                p4_client_factory=lambda *_: object(),
+                workspace_probe_factory=lambda *_: object(),
             )
             settings = self.settings(project_root)
             service.run_plan(settings)
@@ -430,8 +488,8 @@ class PortableGuiServiceTests(unittest.TestCase):
                 applier=fake_apply,
                 applied_validator=validate_applied,
                 live_validator=validate_live,
-                p4_client_factory=lambda _: p4,
-                workspace_probe_factory=lambda _: object(),
+                p4_client_factory=lambda *_: p4,
+                workspace_probe_factory=lambda *_: object(),
             )
             settings = {
                 **self.settings(project_root),
@@ -472,7 +530,7 @@ class PortableGuiServiceTests(unittest.TestCase):
             write_handed_off_manifest(data_root, project_root, final_state="applied")
             service = self.make_service(
                 data_root,
-                workspace_probe_factory=lambda _: FixedOpenedProbe(True),
+                workspace_probe_factory=lambda *_: FixedOpenedProbe(True),
             )
             settings = self.settings(project_root)
 
@@ -495,7 +553,7 @@ class PortableGuiServiceTests(unittest.TestCase):
             service = self.make_service(
                 data_root,
                 live_validator=lambda *_, **__: ValidationResult(()),
-                workspace_probe_factory=lambda _: FixedOpenedProbe(False),
+                workspace_probe_factory=lambda *_: FixedOpenedProbe(False),
             )
 
             result = service.run_check_handoff(self.settings(project_root))
@@ -519,7 +577,7 @@ class PortableGuiServiceTests(unittest.TestCase):
             )
             service = self.make_service(
                 data_root,
-                workspace_probe_factory=lambda _: FixedOpenedProbe(False),
+                workspace_probe_factory=lambda *_: FixedOpenedProbe(False),
             )
 
             result = service.run_check_handoff(self.settings(project_root))
@@ -543,8 +601,8 @@ class PortableGuiServiceTests(unittest.TestCase):
                 applier=fake_apply,
                 applied_validator=lambda *_, **__: ValidationResult((local_issue,)),
                 live_validator=lambda *_, **__: ValidationResult((live_issue,)),
-                p4_client_factory=lambda _: object(),
-                workspace_probe_factory=lambda _: object(),
+                p4_client_factory=lambda *_: object(),
+                workspace_probe_factory=lambda *_: object(),
             )
             settings = self.settings(project_root)
             service.run_plan(settings)
@@ -566,8 +624,8 @@ class PortableGuiServiceTests(unittest.TestCase):
             service = self.make_service(
                 root / "data",
                 applier=failed_apply_with_recovery_manifest,
-                p4_client_factory=lambda _: object(),
-                workspace_probe_factory=lambda _: object(),
+                p4_client_factory=lambda *_: object(),
+                workspace_probe_factory=lambda *_: object(),
             )
             settings = self.settings(project_root)
             service.run_plan(settings)
@@ -614,8 +672,8 @@ class PortableGuiServiceTests(unittest.TestCase):
             service = self.make_service(
                 root / "data",
                 applier=failed_apply_with_recovery_manifest,
-                p4_client_factory=lambda _: object(),
-                workspace_probe_factory=lambda _: object(),
+                p4_client_factory=lambda *_: object(),
+                workspace_probe_factory=lambda *_: object(),
             )
             settings = self.settings(project_root)
             service.run_plan(settings)
@@ -811,6 +869,22 @@ class PortableGuiServiceTests(unittest.TestCase):
 
             self.assertFalse(result["ok"])
             self.assertIn("Project is not mapped", result["error"])
+
+    def test_bridge_keeps_native_window_and_service_private(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            api = GuiApi(self.make_service(Path(directory) / "data"))
+            api.bind_window(object())
+
+            self.assertTrue(all(name.startswith("_") for name in vars(api)))
+            self.assertEqual(
+                [],
+                [
+                    name
+                    for name in dir(api)
+                    if not name.startswith("_")
+                    and not callable(getattr(api, name))
+                ],
+            )
 
 
 if __name__ == "__main__":

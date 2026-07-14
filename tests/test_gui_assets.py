@@ -15,8 +15,8 @@ class GuiAssetTests(unittest.TestCase):
     def test_desktop_assets_are_packaged_together(self) -> None:
         index = (ASSET_ROOT / "index.html").read_text(encoding="utf-8")
 
-        self.assertIn('href="styles.css?v=9"', index)
-        self.assertIn('src="app.js?v=9"', index)
+        self.assertIn('href="styles.css?v=10"', index)
+        self.assertIn('src="app.js?v=10"', index)
         self.assertTrue((ASSET_ROOT / "styles.css").is_file())
         self.assertTrue((ASSET_ROOT / "app.js").is_file())
 
@@ -47,6 +47,11 @@ class GuiAssetTests(unittest.TestCase):
         self.assertIn("app-version", index)
         self.assertIn('id="offline-test-mode"', index)
         self.assertIn("Perforce 없이 로컬 테스트", index)
+        self.assertIn('id="detect-p4-connection"', index)
+        self.assertIn('id="p4-port"', index)
+        self.assertIn('id="p4-user"', index)
+        self.assertIn('id="p4-client"', index)
+        self.assertIn("'detect_p4_connection'", script)
         self.assertIn("offlineTestMode", script)
         self.assertNotIn("Apply · Rollback 기능 없음", index)
         self.assertIn("환경 확인과 이동 계획까지는 프로젝트를 변경하지 않습니다", index)

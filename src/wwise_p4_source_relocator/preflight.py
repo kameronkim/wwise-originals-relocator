@@ -6,6 +6,7 @@ import subprocess
 from typing import Protocol
 
 from .models import RelocationPlan, ValidationIssue, ValidationResult
+from .p4_client import P4Connection, p4_result_has_error
 from .project_paths import UnsafeProjectPath, resolve_project_path
 
 
@@ -18,28 +19,41 @@ class WorkspaceProbe(Protocol):
 
 
 class P4WorkspaceProbe:
-    def __init__(self, executable: str = "p4") -> None:
+    def __init__(
+        self,
+        executable: str = "p4",
+        connection: P4Connection | None = None,
+    ) -> None:
         self.executable = executable
+        self.connection = connection or P4Connection()
 
     def is_available(self) -> bool:
         return shutil.which(self.executable) is not None
 
     def is_in_workspace(self, path: Path) -> bool:
         result = self._run("where", path)
-        return result.returncode == 0 and "not in client view" not in result.stdout
+        return (
+            not p4_result_has_error(result)
+            and "not in client view" not in result.stdout
+        )
 
     def is_opened(self, path: Path) -> bool:
         result = self._run("opened", path)
         output = result.stdout.strip()
         return (
-            result.returncode == 0
+            not p4_result_has_error(result)
             and bool(output)
             and "not opened" not in output.casefold()
         )
 
     def _run(self, operation: str, path: Path) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
-            (self.executable, operation, str(path)),
+            (
+                self.executable,
+                *self.connection.global_options(),
+                operation,
+                str(path),
+            ),
             capture_output=True,
             text=True,
             check=False,

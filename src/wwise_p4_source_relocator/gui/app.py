@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
 import platform
@@ -91,8 +92,17 @@ def _write_smoke_report(contents: str) -> None:
 def _configure_logging(data_root: Path) -> None:
     log_root = data_root / "logs"
     log_root.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(
+        log_root / "relocator.log",
+        maxBytes=2 * 1024 * 1024,
+        backupCount=3,
+        encoding="utf-8",
+    )
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    )
     logging.basicConfig(
-        filename=log_root / "relocator.log",
         level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        handlers=(handler,),
+        force=True,
     )

@@ -1,8 +1,13 @@
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from wwise_p4_source_relocator.models import RelocationPlan, RelocationPlanItem
-from wwise_p4_source_relocator.preflight import validate_relocation_plan
+from wwise_p4_source_relocator.p4_client import P4Connection
+from wwise_p4_source_relocator.preflight import (
+    P4WorkspaceProbe,
+    validate_relocation_plan,
+)
 
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "sample_project"
@@ -47,6 +52,36 @@ def plan_with(item: RelocationPlanItem) -> RelocationPlan:
 
 
 class PreflightTests(unittest.TestCase):
+    def test_workspace_probe_uses_selected_p4v_connection(self) -> None:
+        probe = P4WorkspaceProbe(
+            executable="p4.exe",
+            connection=P4Connection(
+                port="ssl:perforce.example.com:1666",
+                user="audio.user",
+                client="audio-workspace",
+            ),
+        )
+        with patch("subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = "mapped"
+
+            self.assertTrue(probe.is_in_workspace(Path("C:/Work/Pilot.wproj")))
+
+        self.assertEqual(
+            (
+                "p4.exe",
+                "-p",
+                "ssl:perforce.example.com:1666",
+                "-u",
+                "audio.user",
+                "-c",
+                "audio-workspace",
+                "where",
+                "C:/Work/Pilot.wproj",
+            ),
+            run.call_args.args[0],
+        )
+
     def test_valid_move_passes_with_clean_workspace(self) -> None:
         result = validate_relocation_plan(
             plan_with(move_item()), probe=FakeWorkspaceProbe()

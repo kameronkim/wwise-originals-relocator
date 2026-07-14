@@ -16,44 +16,44 @@ class GuiApi:
     """Small JavaScript API exposed to the local portable GUI."""
 
     def __init__(self, service: PortableGuiService) -> None:
-        self.service = service
-        self.window: Any | None = None
+        self._service = service
+        self._window: Any | None = None
         self._operation_lock = Lock()
 
     def bind_window(self, window: Any) -> None:
-        self.window = window
+        self._window = window
 
     def get_initial_state(self) -> dict[str, object]:
-        return self._invoke(self.service.initial_state)
+        return self._invoke(self._service.initial_state)
 
     def choose_project(self) -> dict[str, object]:
         def choose() -> dict[str, object]:
-            if self.window is None:
+            if self._window is None:
                 raise GuiServiceError("프로젝트 선택 창을 열 수 없습니다.")
             import webview
 
-            current = str(self.service.store.load().get("projectRoot") or "")
-            selected = self.window.create_file_dialog(
+            current = str(self._service.store.load().get("projectRoot") or "")
+            selected = self._window.create_file_dialog(
                 webview.FOLDER_DIALOG,
                 directory=current if Path(current).is_dir() else "",
             )
             if not selected:
                 return {"cancelled": True}
             project_root = str(Path(selected[0]).resolve())
-            settings = self.service.store.load()
+            settings = self._service.store.load()
             settings["projectRoot"] = project_root
-            self.service.update_settings(settings)
+            self._service.update_settings(settings)
             return {"cancelled": False, "projectRoot": project_root}
 
         return self._invoke(choose)
 
     def choose_p4(self) -> dict[str, object]:
         def choose() -> dict[str, object]:
-            if self.window is None:
+            if self._window is None:
                 raise GuiServiceError("Perforce 실행 파일 선택 창을 열 수 없습니다.")
             import webview
 
-            selected = self.window.create_file_dialog(
+            selected = self._window.create_file_dialog(
                 webview.OPEN_DIALOG,
                 allow_multiple=False,
                 file_types=("Perforce CLI (p4;p4.exe)", "All files (*.*)"),
@@ -61,26 +61,34 @@ class GuiApi:
             if not selected:
                 return {"cancelled": True}
             executable = str(Path(selected[0]).resolve())
-            settings = self.service.store.load()
+            settings = self._service.store.load()
             settings["p4Executable"] = executable
-            self.service.update_settings(settings)
+            self._service.update_settings(settings)
             return {"cancelled": False, "p4Executable": executable}
 
         return self._invoke(choose)
 
     def save_settings(self, values: Mapping[str, object]) -> dict[str, object]:
-        return self._invoke(self.service.update_settings, values)
+        return self._invoke(self._service.update_settings, values)
+
+    def detect_p4_connection(
+        self, values: Mapping[str, object]
+    ) -> dict[str, object]:
+        return self._invoke_exclusive(
+            self._service.detect_p4_connection,
+            values,
+        )
 
     def get_operation_history(
         self, values: Mapping[str, object]
     ) -> dict[str, object]:
-        return self._invoke(self.service.get_operation_history, values)
+        return self._invoke(self._service.get_operation_history, values)
 
     def run_doctor(self, values: Mapping[str, object]) -> dict[str, object]:
-        return self._invoke_exclusive(self.service.run_doctor, values)
+        return self._invoke_exclusive(self._service.run_doctor, values)
 
     def run_plan(self, values: Mapping[str, object]) -> dict[str, object]:
-        return self._invoke_exclusive(self.service.run_plan, values)
+        return self._invoke_exclusive(self._service.run_plan, values)
 
     def run_apply(
         self,
@@ -89,7 +97,7 @@ class GuiApi:
         confirmation: str,
     ) -> dict[str, object]:
         return self._invoke_exclusive(
-            self.service.run_apply,
+            self._service.run_apply,
             values,
             source_file_names,
             confirmation,
@@ -101,7 +109,7 @@ class GuiApi:
         confirmation: str,
     ) -> dict[str, object]:
         return self._invoke_exclusive(
-            self.service.run_rollback,
+            self._service.run_rollback,
             values,
             confirmation,
         )
@@ -111,7 +119,7 @@ class GuiApi:
         values: Mapping[str, object],
     ) -> dict[str, object]:
         return self._invoke_exclusive(
-            self.service.run_validate_apply,
+            self._service.run_validate_apply,
             values,
         )
 
@@ -121,7 +129,7 @@ class GuiApi:
         confirmation: str,
     ) -> dict[str, object]:
         return self._invoke_exclusive(
-            self.service.run_handoff_apply,
+            self._service.run_handoff_apply,
             values,
             confirmation,
         )
@@ -131,7 +139,7 @@ class GuiApi:
         values: Mapping[str, object],
     ) -> dict[str, object]:
         return self._invoke_exclusive(
-            self.service.run_check_handoff,
+            self._service.run_check_handoff,
             values,
         )
 
