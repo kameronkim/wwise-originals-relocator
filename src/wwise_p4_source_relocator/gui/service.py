@@ -4,6 +4,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import platform
@@ -47,6 +48,10 @@ from ..validator import (
     validate_live_wwise_manifest_at_url,
 )
 from ..waapi_reader import WaapiError, scan_live
+
+
+LOGGER = logging.getLogger(__name__)
+LOGGER.addHandler(logging.NullHandler())
 
 
 DEFAULT_SETTINGS: dict[str, object] = {
@@ -207,10 +212,32 @@ class PortableGuiService:
                 cwd=project_root,
             )
         except (OSError, subprocess.SubprocessError, P4CommandError) as exc:
-            raise GuiServiceError(
-                "P4V/Perforce 연결 정보를 확인하지 못했습니다. P4V에서 올바른 "
-                "서버와 workspace로 로그인했는지 확인하세요."
-            ) from exc
+            fallback = P4Connection.from_environment()
+            if fallback != connection:
+                LOGGER.warning(
+                    "Configured Perforce context failed; retrying current p4 settings: %s",
+                    exc,
+                )
+                try:
+                    info = query_p4_connection(
+                        executable=executable,
+                        connection=fallback,
+                        cwd=project_root,
+                    )
+                except (
+                    OSError,
+                    subprocess.SubprocessError,
+                    P4CommandError,
+                ) as fallback_exc:
+                    raise GuiServiceError(
+                        "P4V/Perforce 연결 정보를 확인하지 못했습니다. P4V에서 "
+                        "올바른 서버와 workspace로 로그인했는지 확인하세요."
+                    ) from fallback_exc
+            else:
+                raise GuiServiceError(
+                    "P4V/Perforce 연결 정보를 확인하지 못했습니다. P4V에서 올바른 "
+                    "서버와 workspace로 로그인했는지 확인하세요."
+                ) from exc
         resolved = info.connection
         settings.update(
             {
@@ -225,6 +252,8 @@ class PortableGuiService:
         return {
             "settings": saved,
             "connection": info.to_dict(),
+            "workspaceConfigured": bool(resolved.client),
+            "workspaceCandidates": list(info.client_candidates),
             "source": (
                 "p4v-environment"
                 if P4Connection.from_environment().configured
@@ -1180,6 +1209,7 @@ def _mark_perforce_skipped(readiness: PilotReadiness) -> PilotReadiness:
         waapi_transport=readiness.waapi_transport,
         waapi_issue=readiness.waapi_issue,
         p4_connection=readiness.p4_connection,
+        p4_workspace_issue=None,
     )
 
 

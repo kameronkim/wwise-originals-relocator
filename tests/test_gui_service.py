@@ -25,7 +25,11 @@ from wwise_p4_source_relocator.models import (
     ValidationIssue,
     ValidationResult,
 )
-from wwise_p4_source_relocator.p4_client import P4Connection, P4ConnectionInfo
+from wwise_p4_source_relocator.p4_client import (
+    P4CommandError,
+    P4Connection,
+    P4ConnectionInfo,
+)
 from wwise_p4_source_relocator.readiness import PilotReadiness, ReadinessCheck
 from wwise_p4_source_relocator.report import (
     read_rollback_manifest,
@@ -327,8 +331,75 @@ class PortableGuiServiceTests(unittest.TestCase):
 
             self.assertEqual("audio-workspace", result["settings"]["p4Client"])
             self.assertEqual("audio.user", service.store.load()["p4User"])
+            self.assertTrue(result["workspaceConfigured"])
             self.assertNotIn("password", service.store.settings_path.read_text())
             self.assertEqual(project_root.resolve(), query.call_args.kwargs["cwd"])
+
+    def test_detect_p4_connection_reports_when_workspace_is_still_needed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(root / "data")
+            info = P4ConnectionInfo(
+                P4Connection(
+                    port="perforce.example.com:1666",
+                    user="audio.user",
+                ),
+                client_candidates=("workspace-a", "workspace-b"),
+            )
+            with patch(
+                "wwise_p4_source_relocator.gui.service.query_p4_connection",
+                return_value=info,
+            ):
+                result = service.detect_p4_connection(self.settings(project_root))
+
+            self.assertFalse(result["workspaceConfigured"])
+            self.assertEqual(
+                ["workspace-a", "workspace-b"],
+                result["workspaceCandidates"],
+            )
+            self.assertEqual("", result["settings"]["p4Client"])
+
+    def test_detect_p4_connection_recovers_from_a_stale_saved_server(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(root / "data")
+            values = self.settings(project_root)
+            values["p4Port"] = "localhost.localdomain:1666"
+            detected = P4ConnectionInfo(
+                P4Connection(
+                    port="172.16.32.101:1666",
+                    user="developer",
+                    client="audio-workspace",
+                )
+            )
+            failure = P4CommandError(
+                1,
+                ("p4", "info"),
+                output="",
+                stderr="Connect to server failed",
+            )
+            with (
+                patch.dict("os.environ", {}, clear=True),
+                patch(
+                    "wwise_p4_source_relocator.gui.service.query_p4_connection",
+                    side_effect=(failure, detected),
+                ) as query,
+            ):
+                result = service.detect_p4_connection(values)
+
+            self.assertEqual(
+                "172.16.32.101:1666",
+                result["settings"]["p4Port"],
+            )
+            self.assertEqual(
+                "localhost.localdomain:1666",
+                query.call_args_list[0].kwargs["connection"].port,
+            )
+            self.assertIsNone(query.call_args_list[1].kwargs["connection"].port)
 
     def test_operation_history_is_sorted_and_filtered_to_selected_project(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
