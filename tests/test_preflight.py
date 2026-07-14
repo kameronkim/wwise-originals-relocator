@@ -53,6 +53,7 @@ def plan_with(item: RelocationPlanItem) -> RelocationPlan:
 
 class PreflightTests(unittest.TestCase):
     def test_workspace_probe_uses_selected_p4v_connection(self) -> None:
+        project_path = Path("C:/Work/Pilot.wproj")
         probe = P4WorkspaceProbe(
             executable="p4.exe",
             connection=P4Connection(
@@ -65,7 +66,7 @@ class PreflightTests(unittest.TestCase):
             run.return_value.returncode = 0
             run.return_value.stdout = "mapped"
 
-            self.assertTrue(probe.is_in_workspace(Path("C:/Work/Pilot.wproj")))
+            self.assertTrue(probe.is_in_workspace(project_path))
 
         self.assertEqual(
             (
@@ -77,7 +78,7 @@ class PreflightTests(unittest.TestCase):
                 "-c",
                 "audio-workspace",
                 "where",
-                "C:/Work/Pilot.wproj",
+                str(project_path),
             ),
             run.call_args.args[0],
         )
