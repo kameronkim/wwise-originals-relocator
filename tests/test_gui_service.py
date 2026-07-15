@@ -826,6 +826,33 @@ class PortableGuiServiceTests(unittest.TestCase):
                 all(Path(path).is_file() for path in result["reports"].values())
             )
 
+    def test_plan_persists_an_automatically_discovered_object_root(self) -> None:
+        detected_root = r"\Containers\Default Work Unit\VO\Temp_VO"
+
+        def detected_scan(**values: object) -> ScanResult:
+            return ScanResult(
+                project_root=Path(str(values["project_root"])),
+                object_root=detected_root,
+                chapter=str(values["chapter"]),
+                items=scan(**values).items,
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(
+                root / "data",
+                scanner=detected_scan,
+            )
+            settings = self.settings(project_root)
+            settings["objectRoot"] = r"\Containers\Default Work Unit\VO"
+
+            result = service.run_plan(settings)
+
+            self.assertEqual(detected_root, result["objectRoot"])
+            self.assertEqual(detected_root, service.store.load()["objectRoot"])
+
     def test_plan_uses_and_persists_an_automatically_detected_http_endpoint(
         self,
     ) -> None:

@@ -46,6 +46,7 @@ class GuiAssetTests(unittest.TestCase):
         self.assertIn("compactPlanLocation", script)
         self.assertIn("summarizeFileNames", script)
         self.assertIn("buildLargePlanPreview", script)
+        self.assertIn("result.objectRoot", script)
         self.assertIn("이동 가능 전체 선택", index)
         self.assertIn("현재 폴더", index)
         self.assertIn(".plan-table { min-width: 920px; table-layout: fixed; }", styles)

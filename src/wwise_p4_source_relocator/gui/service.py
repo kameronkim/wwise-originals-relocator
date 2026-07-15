@@ -365,6 +365,10 @@ class PortableGuiService:
                 "Wwise WAAPI에서 source를 읽지 못했습니다. Wwise에서 프로젝트가 "
                 f"열려 있고 WAAPI가 활성화되어 있는지 확인하세요. 세부 정보: {exc}"
             ) from exc
+        if scan.object_root != object_root:
+            object_root = scan.object_root
+            settings = {**settings, "objectRoot": object_root}
+            self.store.save(settings)
         plan = self._planner(scan)
         probe = (
             LocalTestWorkspaceProbe()

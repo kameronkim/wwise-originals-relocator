@@ -295,6 +295,9 @@ function waapiReadinessMessage(result, check) {
 function renderPlan(result) {
   state.plan = result;
   state.selectedItems = [];
+  if (result.objectRoot && element('object-root').value !== result.objectRoot) {
+    element('object-root').value = result.objectRoot;
+  }
   const counts = result.counts || {};
   element('move-count').textContent = counts['move-and-patch'] || 0;
   element('skip-count').textContent = counts.skip || 0;
