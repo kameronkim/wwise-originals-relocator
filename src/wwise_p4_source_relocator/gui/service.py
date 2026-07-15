@@ -11,6 +11,7 @@ import platform
 import shutil
 import subprocess
 import sys
+from time import perf_counter
 
 from .. import __version__
 from ..applier import ApplyError, apply_selected_files
@@ -18,6 +19,7 @@ from ..models import (
     RelocationPlan,
     RollbackManifest,
     ScanResult,
+    ValidationIssue,
     ValidationResult,
 )
 from ..p4_client import (
@@ -44,6 +46,7 @@ from ..report import (
 )
 from ..rollback import rollback_manifest
 from ..validator import (
+    DEFAULT_LIVE_WWISE_BATCH_SIZE,
     validate_applied_manifest,
     validate_live_wwise_manifest_at_url,
 )
@@ -69,6 +72,10 @@ DEFAULT_SETTINGS: dict[str, object] = {
 }
 
 
+def _elapsed_ms(started: float) -> float:
+    return round((perf_counter() - started) * 1000, 3)
+
+
 class GuiServiceError(RuntimeError):
     """An actionable operator error that is safe to show in the GUI."""
 
@@ -83,6 +90,9 @@ class LocalTestWorkspaceProbe:
         return True
 
     def is_opened(self, path: Path) -> bool:
+        return False
+
+    def has_local_changes(self, path: Path) -> bool:
         return False
 
 
@@ -314,6 +324,7 @@ class PortableGuiService:
         }
 
     def run_plan(self, values: Mapping[str, object]) -> dict[str, object]:
+        operation_started = perf_counter()
         self._clear_planned_state()
         settings = self.store.save(values)
         project_root = _project_root(settings)
@@ -322,6 +333,7 @@ class PortableGuiService:
         configured_waapi_url = _required_setting(settings, "waapiUrl")
         waapi_host, waapi_port, waapi_path, waapi_secure = _waapi_endpoint(settings)
         offline_test_mode = _offline_test_mode(settings)
+        readiness_started = perf_counter()
         readiness = self._readiness_inspector(
             project_root,
             p4_executable=p4_executable,
@@ -335,6 +347,7 @@ class PortableGuiService:
             waapi_secure=waapi_secure,
             waapi_url=configured_waapi_url,
         )
+        readiness_ms = _elapsed_ms(readiness_started)
         if offline_test_mode:
             readiness = _mark_perforce_skipped(readiness)
         if not readiness.ready:
@@ -349,6 +362,7 @@ class PortableGuiService:
         chapter = _required_setting(settings, "chapter")
         waapi_url = readiness.waapi_url or configured_waapi_url
         _save_detected_connections(self.store, settings, readiness)
+        scan_started = perf_counter()
         try:
             scan = self._scanner(
                 project_root=project_root,
@@ -361,13 +375,22 @@ class PortableGuiService:
                 "Wwise WAAPI에서 source를 읽지 못했습니다. Wwise에서 프로젝트가 "
                 f"열려 있고 WAAPI가 활성화되어 있는지 확인하세요. 세부 정보: {exc}"
             ) from exc
+        scan_ms = _elapsed_ms(scan_started)
+        if scan.object_root != object_root:
+            object_root = scan.object_root
+            settings = {**settings, "objectRoot": object_root}
+            self.store.save(settings)
+        plan_started = perf_counter()
         plan = self._planner(scan)
+        plan_ms = _elapsed_ms(plan_started)
         probe = (
             LocalTestWorkspaceProbe()
             if offline_test_mode
             else self._workspace_probe_factory(p4_executable, p4_connection)
         )
+        validation_started = perf_counter()
         validation = self._plan_validator(plan, probe=probe)
+        validation_ms = _elapsed_ms(validation_started)
         self._planned_plan = plan
         self._planned_validation = validation
         self._planned_settings = _plan_settings_signature(settings)
@@ -377,6 +400,8 @@ class PortableGuiService:
         plan_path = report_root / "plan.json"
         plan_markdown_path = report_root / "plan.md"
         validation_path = report_root / "validation.md"
+        performance_path = report_root / "performance.json"
+        report_started = perf_counter()
         write_json_document(scan, scan_path)
         write_json_document(plan, plan_path)
         plan_markdown_path.write_text(
@@ -385,10 +410,38 @@ class PortableGuiService:
         validation_path.write_text(
             render_validation(validation), encoding="utf-8"
         )
+        report_ms = _elapsed_ms(report_started)
         counts = {
             action: sum(item.action == action for item in plan.items)
             for action in ("move-and-patch", "skip", "manual-review")
         }
+        probe_metrics = getattr(probe, "metrics", None)
+        perforce_metrics = (
+            probe_metrics()
+            if callable(probe_metrics)
+            else {"commandCount": 0, "elapsedMs": 0.0, "batchSize": 0}
+        )
+        performance = {
+            "schemaVersion": 1,
+            "operation": "plan",
+            "itemCount": len(plan.items),
+            "workUnitCount": len(
+                {item.work_unit_path.casefold() for item in plan.items}
+            ),
+            "durationsMs": {
+                "readiness": readiness_ms,
+                "waapiScan": scan_ms,
+                "planBuild": plan_ms,
+                "preflight": validation_ms,
+                "reportWrite": report_ms,
+                "total": _elapsed_ms(operation_started),
+            },
+            "perforce": perforce_metrics,
+        }
+        performance_path.write_text(
+            json.dumps(performance, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
         return {
             "projectRoot": project_root.as_posix(),
             "objectRoot": object_root,
@@ -405,11 +458,13 @@ class PortableGuiService:
             "counts": counts,
             "items": [item.to_dict() for item in plan.items],
             "validation": validation.to_dict(),
+            "performance": performance,
             "reports": {
                 "scan": scan_path.as_posix(),
                 "planJson": plan_path.as_posix(),
                 "planMarkdown": plan_markdown_path.as_posix(),
                 "validation": validation_path.as_posix(),
+                "performance": performance_path.as_posix(),
             },
         }
 
@@ -468,6 +523,13 @@ class PortableGuiService:
                 ),
             )
         except ApplyError as exc:
+            failure_path = report_root / "apply-failure.md"
+            failure_path.write_text(
+                "# Apply Failure\n\n"
+                f"- Error: {exc}\n"
+                f"- Manifest: {manifest_path.as_posix()}\n",
+                encoding="utf-8",
+            )
             recovery = self._active_manifests(project_root)
             if len(recovery) == 1:
                 recovery_path, recovery_manifest = recovery[0]
@@ -481,11 +543,14 @@ class PortableGuiService:
                         "파일 적용과 자동 복구를 완료하지 못했습니다. "
                         f"Rollback을 다시 실행해 주세요. 세부 정보: {exc}"
                     ),
-                    "reports": {"manifest": recovery_path.as_posix()},
+                    "reports": {
+                        "manifest": recovery_path.as_posix(),
+                        "failure": failure_path.as_posix(),
+                    },
                 }
             raise GuiServiceError(
                 "파일 적용을 완료하지 못했습니다. 자동 복구 결과를 "
-                f"확인하세요. 세부 정보: {exc}"
+                f"확인하세요. 세부 정보: {exc}. 실패 보고서: {failure_path}"
             ) from exc
         validation_path.write_text(
             render_validation(validation), encoding="utf-8"
@@ -506,6 +571,7 @@ class PortableGuiService:
         self,
         values: Mapping[str, object],
     ) -> dict[str, object]:
+        operation_started = perf_counter()
         settings = self.store.save(values)
         project_root = _project_root(settings)
         if _offline_test_mode(settings):
@@ -518,16 +584,20 @@ class PortableGuiService:
                 "검증 가능한 작업 manifest를 정확히 하나 찾을 수 없습니다."
             )
         manifest_path, manifest = active[0]
-        if manifest.status != "applied":
+        if manifest.status not in {"awaiting-wwise-reload", "applied"}:
             raise GuiServiceError(
-                "적용에 실패한 manifest입니다. 먼저 Rollback을 실행해 주세요."
+                "Wwise 반영을 확인할 수 없는 manifest입니다. 먼저 Rollback을 "
+                "실행해 주세요."
             )
 
         p4 = self._p4_client_factory(
             _p4_executable(settings),
             _p4_connection(settings),
         )
+        local_started = perf_counter()
         local = self._applied_validator(manifest, p4=p4)
+        local_ms = _elapsed_ms(local_started)
+        live_started = perf_counter()
         try:
             live = self._live_validator(
                 manifest,
@@ -539,12 +609,18 @@ class PortableGuiService:
                 "Changes를 다시 불러오고 열린 설정창을 닫은 뒤 다시 확인해 주세요. "
                 f"세부 정보: {exc}"
             ) from exc
+        live_ms = _elapsed_ms(live_started)
 
         result = ValidationResult(local.issues + live.issues)
         report_root = self._new_report_root("validate-apply")
         validation_path = report_root / "apply-validation.md"
+        performance_path = report_root / "performance.json"
         validation_path.write_text(render_validation(result), encoding="utf-8")
         verification_path = _verification_path(manifest_path)
+        verified_manifest = manifest
+        if result.is_valid and manifest.status == "awaiting-wwise-reload":
+            verified_manifest = manifest.with_status("applied")
+            write_json_document(verified_manifest, manifest_path)
         if result.is_valid:
             _write_apply_verification(
                 verification_path,
@@ -553,15 +629,40 @@ class PortableGuiService:
             )
         else:
             verification_path.unlink(missing_ok=True)
+        object_count = len(manifest.affected_objects)
+        request_count = (
+            object_count + DEFAULT_LIVE_WWISE_BATCH_SIZE - 1
+        ) // DEFAULT_LIVE_WWISE_BATCH_SIZE
+        performance = {
+            "schemaVersion": 1,
+            "operation": "validate-apply",
+            "itemCount": object_count,
+            "durationsMs": {
+                "localValidation": local_ms,
+                "liveWwiseValidation": live_ms,
+                "total": _elapsed_ms(operation_started),
+            },
+            "liveWwise": {
+                "objectCount": object_count,
+                "batchSize": DEFAULT_LIVE_WWISE_BATCH_SIZE,
+                "requestCount": request_count,
+            },
+        }
+        performance_path.write_text(
+            json.dumps(performance, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
         return {
             "valid": result.is_valid,
             "validation": result.to_dict(),
+            "performance": performance,
             "activeOperation": {
-                **_manifest_summary(manifest_path, manifest),
+                **_manifest_summary(manifest_path, verified_manifest),
                 "validated": result.is_valid,
             },
             "reports": {
                 "validation": validation_path.as_posix(),
+                "performance": performance_path.as_posix(),
                 "verification": (
                     verification_path.as_posix() if result.is_valid else None
                 ),
@@ -763,16 +864,28 @@ class PortableGuiService:
                     "실행하지 않고 P4V 마감 상태 확인을 먼저 눌러 주세요."
                 )
 
-        result = self._rollbacker(
-            manifest,
-            p4=self._p4_client_factory(
-                _p4_executable(settings),
-                _p4_connection(settings),
-            ),
-            manifest_path=manifest_path,
-        )
         report_root = self._new_report_root("rollback")
         validation_path = report_root / "rollback-validation.md"
+        try:
+            result = self._rollbacker(
+                manifest,
+                p4=self._p4_client_factory(
+                    _p4_executable(settings),
+                    _p4_connection(settings),
+                ),
+                manifest_path=manifest_path,
+            )
+        except Exception as exc:
+            LOGGER.exception("Rollback stopped unexpectedly")
+            result = ValidationResult(
+                (
+                    ValidationIssue(
+                        "rollback-exception",
+                        f"Rollback stopped unexpectedly: {exc}",
+                    ),
+                )
+            )
+            write_json_document(manifest.with_status("failed"), manifest_path)
         validation_path.write_text(render_validation(result), encoding="utf-8")
         self._clear_planned_state()
         return {
@@ -799,7 +912,12 @@ class PortableGuiService:
             except (OSError, ValueError, json.JSONDecodeError):
                 continue
             if (
-                manifest.status in {"applied", "handed-off", "failed"}
+                manifest.status in {
+                    "awaiting-wwise-reload",
+                    "applied",
+                    "handed-off",
+                    "failed",
+                }
                 and len(manifest.moves) >= 1
                 and len(manifest.moves) == len(manifest.patched_files)
                 and len(manifest.moves) == len(manifest.affected_objects)

@@ -7,11 +7,19 @@ import subprocess
 from typing import Protocol
 from urllib.parse import urlparse
 
-from .models import RollbackManifest, ValidationIssue, ValidationResult
+from .models import (
+    AffectedObjectRecord,
+    RollbackManifest,
+    ValidationIssue,
+    ValidationResult,
+)
 from .p4_client import P4Client
 from .project_paths import UnsafeProjectPath, resolve_project_path
 from .waapi_transport import HttpWaapiConnection, WaapiCallError
 from .wwise_xml import WwuParseError, source_path_count_for_guid
+
+
+DEFAULT_LIVE_WWISE_BATCH_SIZE = 32
 
 
 class WaapiConnection(Protocol):
@@ -172,13 +180,21 @@ def validate_applied_manifest(
 
 
 def validate_live_wwise_manifest(
-    manifest: RollbackManifest, *, connection: WaapiConnection
+    manifest: RollbackManifest,
+    *,
+    connection: WaapiConnection,
+    batch_size: int = DEFAULT_LIVE_WWISE_BATCH_SIZE,
 ) -> ValidationResult:
+    if batch_size <= 0:
+        raise ValueError("Live Wwise validation batch size must be positive")
+
     issues: list[ValidationIssue] = []
-    for affected in manifest.affected_objects:
+    affected_objects = manifest.affected_objects
+    for offset in range(0, len(affected_objects), batch_size):
+        batch = affected_objects[offset : offset + batch_size]
         response = connection.call(
             "ak.wwise.core.object.get",
-            {"from": {"path": [affected.object_path]}},
+            {"from": {"path": [affected.object_path for affected in batch]}},
             options={
                 "return": [
                     "id",
@@ -189,74 +205,125 @@ def validate_live_wwise_manifest(
             },
         )
         if not isinstance(response, dict):
-            issues.append(
+            issues.extend(
                 ValidationIssue(
                     "wwise-response-invalid",
                     "WAAPI did not return a response object",
                     affected.object_path,
                 )
+                for affected in batch
             )
             continue
         records = response.get("return")
-        if not isinstance(records, list) or len(records) != 1:
-            issues.append(
+        if not isinstance(records, list):
+            issues.extend(
                 ValidationIssue(
-                    "wwise-object-missing",
-                    "WAAPI did not return exactly one affected Wwise object",
+                    "wwise-response-invalid",
+                    "WAAPI did not return an object list",
                     affected.object_path,
                 )
+                for affected in batch
             )
             continue
-        record = records[0]
-        if not isinstance(record, dict):
+        valid_records = [record for record in records if isinstance(record, dict)]
+        if len(valid_records) != len(records):
             issues.append(
                 ValidationIssue(
                     "wwise-object-invalid",
                     "WAAPI returned an invalid object record",
-                    affected.object_path,
+                    batch[0].object_path,
                 )
             )
-            continue
-        if record.get("id") != affected.guid:
-            issues.append(
-                ValidationIssue(
-                    "wwise-guid-changed",
-                    "Affected Wwise object GUID does not match the manifest",
-                    affected.object_path,
+
+        used_record_indices: set[int] = set()
+        for affected in batch:
+            matching_records = [
+                (index, record)
+                for index, record in enumerate(valid_records)
+                if index not in used_record_indices
+                and isinstance(record.get("id"), str)
+                and record["id"].casefold() == affected.guid.casefold()
+            ]
+            if not matching_records:
+                matching_records = [
+                    (index, record)
+                    for index, record in enumerate(valid_records)
+                    if index not in used_record_indices
+                    and record.get("path") == affected.object_path
+                ]
+            if not matching_records and len(batch) == 1 and len(valid_records) == 1:
+                # A single stale result can still provide detailed identity diagnostics.
+                matching_records = [(0, valid_records[0])]
+            if not matching_records:
+                issues.append(
+                    ValidationIssue(
+                        "wwise-object-missing",
+                        "WAAPI did not return the affected Wwise object",
+                        affected.object_path,
+                    )
                 )
-            )
-        if record.get("path") != affected.object_path:
-            issues.append(
-                ValidationIssue(
-                    "wwise-path-changed",
-                    "Affected Wwise object path does not match the manifest",
-                    affected.object_path,
+                continue
+            if len(matching_records) > 1:
+                issues.append(
+                    ValidationIssue(
+                        "wwise-object-ambiguous",
+                        "WAAPI returned multiple records for the affected Wwise object",
+                        affected.object_path,
+                    )
                 )
-            )
-        relative = record.get("originalRelativeFilePath")
-        source_matches = isinstance(relative, str) and _canonical_source_path(
-            relative
-        ) == _canonical_source_path(affected.after_source_relative_path)
-        if not source_matches:
-            issues.append(
-                ValidationIssue(
-                    "wwise-source-mismatch",
-                    "Wwise has not loaded the relocated source path",
-                    affected.object_path,
-                )
-            )
-        original_file = record.get("originalFilePath")
-        if not isinstance(original_file, str) or not _waapi_file_exists(
-            original_file
-        ):
-            issues.append(
-                ValidationIssue(
-                    "wwise-source-missing",
-                    "WAAPI does not report an existing original source file",
-                    affected.object_path,
-                )
-            )
+                continue
+            record_index, record = matching_records[0]
+            used_record_indices.add(record_index)
+            issues.extend(_validate_live_wwise_record(affected, record))
     return ValidationResult(tuple(issues))
+
+
+def _validate_live_wwise_record(
+    affected: AffectedObjectRecord, record: dict[str, object]
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    record_id = record.get("id")
+    if (
+        not isinstance(record_id, str)
+        or record_id.casefold() != affected.guid.casefold()
+    ):
+        issues.append(
+            ValidationIssue(
+                "wwise-guid-changed",
+                "Affected Wwise object GUID does not match the manifest",
+                affected.object_path,
+            )
+        )
+    if record.get("path") != affected.object_path:
+        issues.append(
+            ValidationIssue(
+                "wwise-path-changed",
+                "Affected Wwise object path does not match the manifest",
+                affected.object_path,
+            )
+        )
+    relative = record.get("originalRelativeFilePath")
+    source_matches = isinstance(relative, str) and _canonical_source_path(
+        relative
+    ) == _canonical_source_path(affected.after_source_relative_path)
+    if not source_matches:
+        issues.append(
+            ValidationIssue(
+                "wwise-source-mismatch",
+                "Wwise has not loaded the relocated source path",
+                affected.object_path,
+            )
+        )
+    original_file = record.get("originalFilePath")
+    if not isinstance(original_file, str) or not _waapi_file_exists(original_file):
+        issues.append(
+            ValidationIssue(
+                "wwise-source-missing",
+                "WAAPI does not report an existing original source file",
+                affected.object_path,
+            )
+        )
+    return issues
 
 
 def validate_live_wwise_manifest_at_url(

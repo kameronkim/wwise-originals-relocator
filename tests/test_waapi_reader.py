@@ -107,6 +107,41 @@ class WaapiReaderTests(unittest.TestCase):
             item.source_relative_paths,
         )
 
+    def test_discovers_the_category_parent_below_a_configured_root(self) -> None:
+        guid = "{8886C06E-4664-4CEA-B3F1-8668CCDF3683}"
+        result = build_scan_result(
+            [
+                sound_record("CH04_S102_WT_001", guid),
+                source_record(
+                    guid,
+                    r"Voices\English(US)\Scenario\CH04\CH04_S102_WT_001.wav",
+                ),
+            ],
+            project_root=FIXTURE_ROOT,
+            object_root=r"\Containers\Default Work Unit\VO",
+            chapter="CH04",
+        )
+
+        self.assertEqual(OBJECT_ROOT, result.object_root)
+        self.assertEqual(1, len(result.items))
+        self.assertEqual("Script", result.items[0].category)
+
+    def test_multiple_object_root_candidates_require_operator_selection(self) -> None:
+        first_guid = "{8886C06E-4664-4CEA-B3F1-8668CCDF3683}"
+        second_guid = "{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}"
+        second_sound = sound_record("CH04_S103_DI_001", second_guid, "Dialog")
+        second_sound["path"] = second_sound["path"].replace(
+            "\\Temp_VO\\", "\\Other_VO\\"
+        )
+
+        with self.assertRaisesRegex(WaapiError, "Multiple Wwise object root"):
+            build_scan_result(
+                [sound_record("CH04_S102_WT_001", first_guid), second_sound],
+                project_root=FIXTURE_ROOT,
+                object_root=r"\Containers\Default Work Unit\VO",
+                chapter="CH04",
+            )
+
     def test_scan_uses_read_only_object_get(self) -> None:
         connection = FakeConnection([])
 

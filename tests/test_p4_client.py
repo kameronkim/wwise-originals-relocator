@@ -8,6 +8,7 @@ from wwise_p4_source_relocator.p4_client import (
     P4CommandError,
     P4Connection,
     P4ExecutionDisabled,
+    p4_creation_flags,
     query_p4_connection,
 )
 
@@ -122,6 +123,22 @@ class P4ClientTests(unittest.TestCase):
             result = client.run(client.diff("Default Work Unit.wwu"))
 
         self.assertEqual("opened for edit\n+patched line\n", result.stdout)
+
+    def test_run_uses_timeout_and_windowless_process_options(self) -> None:
+        client = P4Client(dry_run=False, timeout=12.0)
+        completed = subprocess.CompletedProcess(
+            ("p4",), 0, stdout="info: mapped\n", stderr=""
+        )
+
+        with patch("subprocess.run", return_value=completed) as run:
+            client.run(client.where("C:/Work/Audio"))
+
+        self.assertEqual(12.0, run.call_args.kwargs["timeout"])
+        self.assertEqual(p4_creation_flags(), run.call_args.kwargs["creationflags"])
+
+    def test_windows_processes_use_create_no_window(self) -> None:
+        with patch.object(subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True):
+            self.assertEqual(0x08000000, p4_creation_flags("nt"))
 
     def test_query_connection_reads_effective_p4v_context(self) -> None:
         info_result = subprocess.CompletedProcess(

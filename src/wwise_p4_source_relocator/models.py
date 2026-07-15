@@ -332,6 +332,7 @@ class AffectedObjectRecord:
 
 ManifestStatus = Literal[
     "prepared",
+    "awaiting-wwise-reload",
     "applied",
     "handed-off",
     "completed",
@@ -383,6 +384,7 @@ class RollbackManifest:
         status = _required_string(value, "status")
         if status not in {
             "prepared",
+            "awaiting-wwise-reload",
             "applied",
             "handed-off",
             "completed",

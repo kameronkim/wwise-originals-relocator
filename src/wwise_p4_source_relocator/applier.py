@@ -221,9 +221,9 @@ def apply_selected_files(
             message = f"{message}; automatic rollback failed: {rollback_details}"
         raise ApplyError(message) from exc
 
-    applied = manifest.with_status("applied")
-    write_json_document(applied, manifest_path)
-    return applied, validation
+    awaiting_reload = manifest.with_status("awaiting-wwise-reload")
+    write_json_document(awaiting_reload, manifest_path)
+    return awaiting_reload, validation
 
 
 def _select_items(

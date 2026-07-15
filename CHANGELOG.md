@@ -13,6 +13,44 @@ Target: `v0.1.0`
 - Complete and record one real multi-file Wwise and Perforce
   apply/validate/rollback pilot before creating the final `v0.1.0` tag.
 
+## [0.1.0-rc.4] - 2026-07-15
+
+### Added
+
+- Bulk selection and compact, scrollable review for large relocation plans.
+- Explicit Wwise Reload waiting state before live apply validation.
+- Automatic discovery of a unique Wwise Object Root below the configured path.
+- Per-plan `performance.json` reports with stage timings and Perforce command
+  metrics.
+- Post-apply `performance.json` reports with local validation, live Wwise,
+  total duration, batch size, and WAAPI request count.
+- A local HTTP WAAPI server test covering 100 objects, reordered responses,
+  missing and duplicate objects, and server errors.
+
+### Changed
+
+- Grouped read-only `p4 where` and `p4 opened` checks into bounded batches while
+  keeping Work Unit diffs and WAV moves individually verifiable.
+- Added an inline plan summary for WAAPI, Perforce, and table-render timing.
+- Grouped live Wwise object validation into batches of 32 and matched replies
+  by GUID or object path instead of response order.
+
+### Fixed
+
+- Blocked apply when an affected Work Unit already has unrelated local changes.
+- Added actionable rollback failure reports and hash mismatch details.
+- Prevented Perforce subprocess windows from flashing during Windows checks.
+
+### Validation status
+
+- 123 automated tests and 8 subtests pass.
+- The 100-item browser preview renders without horizontal overflow and keeps
+  the plan table in its bounded scroll region.
+- A synthetic 100-item, single-Work-Unit preflight uses 12 read-only Perforce
+  calls with the configured batch size of 32 paths.
+- A 100-object virtual HTTP WAAPI validation completes in 4 requests and
+  confirms order-independent matching and actionable error reporting.
+
 ## [0.1.0-rc.3] - 2026-07-14
 
 ### Added

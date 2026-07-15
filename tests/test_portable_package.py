@@ -21,7 +21,8 @@ class PortablePackageTests(unittest.TestCase):
             config["tool"]["setuptools"]["dynamic"]["version"],
         )
         changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-        self.assertIn("0.1.0-rc.3", changelog)
+        release_version = __version__.replace("rc", "-rc.")
+        self.assertIn(release_version, changelog)
         self.assertIn("real multi-file Wwise and Perforce", changelog)
 
     def test_portable_workflow_covers_integration_branches_and_source(self) -> None:

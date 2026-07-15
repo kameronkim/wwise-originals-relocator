@@ -8,6 +8,7 @@ from typing import Protocol
 from urllib.parse import urlparse
 
 from .models import ScanResult, SourceItem
+from .planner import SUPPORTED_CATEGORIES
 from .waapi_transport import (
     HttpWaapiConnection,
     WaapiCallError,
@@ -210,6 +211,11 @@ def build_scan_result(
     chapter: str,
 ) -> ScanResult:
     root = Path(project_root).resolve()
+    object_root = discover_object_root(
+        records,
+        configured_root=object_root,
+        chapter=chapter,
+    )
     sounds: list[dict[str, object]] = []
     sources_by_owner: dict[str, list[dict[str, object]]] = defaultdict(list)
 
@@ -280,6 +286,56 @@ def infer_tree_location(
     category = relative[0] if relative else None
     chapter = relative[1] if len(relative) > 1 else None
     return category, chapter
+
+
+def discover_object_root(
+    records: list[object],
+    *,
+    configured_root: str,
+    chapter: str,
+) -> str:
+    configured_parts = _wwise_parts(configured_root)
+    configured_folded = tuple(part.casefold() for part in configured_parts)
+    categories = {category.casefold() for category in SUPPORTED_CATEGORIES}
+    candidates: dict[tuple[str, ...], tuple[str, ...]] = {}
+
+    for raw in records:
+        if not isinstance(raw, dict) or raw.get("type") != "Sound":
+            continue
+        raw_path = raw.get("path")
+        if not isinstance(raw_path, str):
+            continue
+        parts = _wwise_parts(raw_path)
+        folded = tuple(part.casefold() for part in parts)
+        if folded[: len(configured_folded)] != configured_folded:
+            continue
+        for index in range(len(configured_parts), len(parts) - 1):
+            if (
+                folded[index] in categories
+                and folded[index + 1] == chapter.casefold()
+            ):
+                candidate = parts[:index]
+                candidates[tuple(part.casefold() for part in candidate)] = candidate
+                break
+
+    if not candidates:
+        return configured_root
+    configured_candidate = candidates.get(configured_folded)
+    if configured_candidate is not None:
+        return "\\" + "\\".join(configured_candidate)
+    if len(candidates) == 1:
+        return "\\" + "\\".join(next(iter(candidates.values())))
+    display = ", ".join(
+        "\\" + "\\".join(candidate)
+        for candidate in sorted(
+            candidates.values(),
+            key=lambda value: tuple(part.casefold() for part in value),
+        )
+    )
+    raise WaapiError(
+        "Multiple Wwise object root candidates were found. Select one in advanced "
+        f"settings: {display}"
+    )
 
 
 def infer_language(source_path: str) -> str | None:
