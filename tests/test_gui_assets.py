@@ -15,8 +15,8 @@ class GuiAssetTests(unittest.TestCase):
     def test_desktop_assets_are_packaged_together(self) -> None:
         index = (ASSET_ROOT / "index.html").read_text(encoding="utf-8")
 
-        self.assertIn('href="styles.css?v=10"', index)
-        self.assertIn('src="app.js?v=11"', index)
+        self.assertIn('href="styles.css?v=11"', index)
+        self.assertIn('src="app.js?v=12"', index)
         self.assertTrue((ASSET_ROOT / "styles.css").is_file())
         self.assertTrue((ASSET_ROOT / "app.js").is_file())
 
@@ -40,6 +40,16 @@ class GuiAssetTests(unittest.TestCase):
         self.assertIn("최근 작업 기록", index)
         self.assertIn("선택한 파일 묶음", index)
         self.assertIn("checkbox", script)
+        self.assertIn('id="select-all-plan"', index)
+        self.assertIn('id="clear-plan-selection"', index)
+        self.assertIn("setAllPlanItemsSelected", script)
+        self.assertIn("compactPlanLocation", script)
+        self.assertIn("summarizeFileNames", script)
+        self.assertIn("buildLargePlanPreview", script)
+        self.assertIn("이동 가능 전체 선택", index)
+        self.assertIn("현재 폴더", index)
+        self.assertIn(".plan-table { min-width: 920px; table-layout: fixed; }", styles)
+        self.assertIn("-webkit-line-clamp: 2", styles)
         self.assertIn("하나라도 실패하면", index)
         self.assertIn("이 프로그램은 submit을 실행하지 않습니다", index)
         self.assertIn("확인 내용", index)

@@ -307,16 +307,18 @@ function renderPlan(result) {
   body.replaceChildren();
   for (const item of result.items || []) {
     const row = document.createElement('tr');
+    row.dataset.planItemKey = planItemKey(item);
     row.append(
       selectionCell(item, result),
       tableCell(item.sourceFileName || item.objectPath, 'file-name'),
-      tableCell(item.from || '—', 'path-text'),
-      tableCell(item.to || '—', 'path-text'),
+      planPathCell(item.from || '—', item.sourceFileName),
+      planPathCell(item.to || '—', item.sourceFileName),
       actionCell(item.action),
       tableCell(item.reason || '—', 'reason-text'),
     );
     body.append(row);
   }
+  element('plan-bulk-actions').hidden = false;
   element('plan-table-wrap').hidden = false;
   renderValidationIssues(result.validation?.issues || []);
   renderApplySelection();
@@ -330,21 +332,20 @@ function renderPlan(result) {
 
 function selectionCell(item, result) {
   const cell = document.createElement('td');
-  const selectable = item.action === 'move-and-patch'
-    && result.validation?.valid
-    && !result.offlineTestMode
-    && !state.activeOperation;
+  const selectable = isSelectablePlanItem(item, result);
   const checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
   checkbox.className = 'row-selector';
+  checkbox.dataset.planItemKey = planItemKey(item);
   checkbox.disabled = !selectable;
   checkbox.setAttribute('aria-label', `${item.sourceFileName || item.objectPath} 선택`);
   checkbox.addEventListener('change', () => {
     if (checkbox.checked) {
-      state.selectedItems.push(item);
+      const selectedKeys = new Set(state.selectedItems.map(planItemKey));
+      if (!selectedKeys.has(planItemKey(item))) state.selectedItems.push(item);
     } else {
       state.selectedItems = state.selectedItems.filter(
-        (selected) => selected.sourceFileName !== item.sourceFileName,
+        (selected) => planItemKey(selected) !== planItemKey(item),
       );
     }
     renderApplySelection();
@@ -353,7 +354,55 @@ function selectionCell(item, result) {
   return cell;
 }
 
+function planItemKey(item) {
+  return [item.objectPath || '', item.sourceFileName || '', item.from || '', item.to || ''].join('\u0000');
+}
+
+function isSelectablePlanItem(item, result = state.plan) {
+  return Boolean(item
+    && item.action === 'move-and-patch'
+    && result?.validation?.valid
+    && !result.offlineTestMode
+    && !state.activeOperation);
+}
+
+function movablePlanItems() {
+  return (state.plan?.items || []).filter((item) => item.action === 'move-and-patch');
+}
+
+function selectablePlanItems() {
+  return movablePlanItems().filter((item) => isSelectablePlanItem(item));
+}
+
+function setAllPlanItemsSelected(selected) {
+  state.selectedItems = selected ? selectablePlanItems() : [];
+  renderApplySelection();
+}
+
+function syncPlanSelectionControls() {
+  const selectable = selectablePlanItems();
+  const selectableKeys = new Set(selectable.map(planItemKey));
+  state.selectedItems = state.selectedItems.filter((item) => selectableKeys.has(planItemKey(item)));
+  const selectedKeys = new Set(state.selectedItems.map(planItemKey));
+
+  document.querySelectorAll('.row-selector').forEach((checkbox) => {
+    const checked = selectedKeys.has(checkbox.dataset.planItemKey);
+    checkbox.disabled = !selectableKeys.has(checkbox.dataset.planItemKey);
+    checkbox.checked = checked;
+    checkbox.closest('tr')?.classList.toggle('selected', checked);
+  });
+
+  const master = element('select-all-plan');
+  master.disabled = selectable.length === 0;
+  master.checked = selectable.length > 0 && selectedKeys.size === selectable.length;
+  master.indeterminate = selectedKeys.size > 0 && selectedKeys.size < selectable.length;
+  element('clear-plan-selection').disabled = selectedKeys.size === 0;
+  element('plan-selected-count').textContent = `${selectedKeys.size}개 선택`;
+  element('plan-selectable-count').textContent = `${movablePlanItems().length}개 이동 가능`;
+}
+
 function renderApplySelection() {
+  syncPlanSelectionControls();
   if (state.activeOperation) {
     renderActiveOperation(state.activeOperation);
     return;
@@ -366,7 +415,11 @@ function renderApplySelection() {
   element('apply-state').textContent = hasSelection ? `${selected.length}개 선택됨` : '계획 필요';
   element('apply-state').className = `panel-state ${hasSelection ? 'ready' : 'neutral'}`;
   if (hasSelection) {
-    element('selected-file').textContent = selected.map((item) => item.sourceFileName).join(', ');
+    const selectedNames = selected.map((item) => item.sourceFileName);
+    element('selected-file').textContent = summarizeFileNames(selectedNames);
+    element('selected-file').title = selectedNames.length <= 10
+      ? selectedNames.join(', ')
+      : `${selectedNames.length}개 파일이 선택되었습니다.`;
     element('selected-move').textContent = selected.length === 1
       ? `${selected[0].from} → ${selected[0].to}`
       : `${selected.length}개 WAV를 같은 changelist에서 이동`;
@@ -391,10 +444,14 @@ function renderActiveOperation(operation) {
     : '계획 필요';
   element('apply-state').className = `panel-state ${active ? (validated && !handedOff ? 'ready' : 'warning') : 'neutral'}`;
   if (active) {
-    element('active-file').textContent = (
-      operation.sourceFileNames || [operation.sourceFileName]
-    ).join(', ');
-    element('active-move').textContent = `${operation.from} → ${operation.to}`;
+    const operationNames = operation.sourceFileNames || [operation.sourceFileName];
+    element('active-file').textContent = summarizeFileNames(operationNames);
+    element('active-file').title = operationNames.length <= 10
+      ? operationNames.join(', ')
+      : `${operationNames.length}개 파일 작업입니다.`;
+    element('active-move').textContent = operationNames.length === 1
+      ? `${operation.from} → ${operation.to}`
+      : `${operationNames.length}개 WAV를 같은 changelist에서 이동`;
     element('apply-report').textContent = `Rollback manifest: ${operation.manifest}`;
     element('apply-report').hidden = false;
     element('run-validate-apply').hidden = operation.status !== 'applied';
@@ -416,6 +473,7 @@ function renderActiveOperation(operation) {
     element('apply-report').hidden = true;
     element('apply-validation-result').hidden = true;
   }
+  syncPlanSelectionControls();
   updateOfflineModePresentation();
 }
 
@@ -550,8 +608,35 @@ function tableCell(value, className) {
   const span = document.createElement('span');
   span.className = className;
   span.textContent = value;
+  span.title = value;
   cell.append(span);
   return cell;
+}
+
+function planPathCell(value, sourceFileName) {
+  const cell = document.createElement('td');
+  const span = document.createElement('span');
+  span.className = 'path-text';
+  span.textContent = compactPlanLocation(value, sourceFileName);
+  span.title = value;
+  span.setAttribute('aria-label', value);
+  cell.append(span);
+  return cell;
+}
+
+function compactPlanLocation(value, sourceFileName) {
+  if (!value || value === '—') return '—';
+  const parts = value.replaceAll('\\', '/').split('/').filter(Boolean);
+  if (parts.at(-1) === sourceFileName) parts.pop();
+  const voicesIndex = parts.findIndex((part) => part.toLocaleLowerCase() === 'voices');
+  const visibleParts = voicesIndex >= 0 ? parts.slice(voicesIndex + 1) : parts;
+  return visibleParts.join(' / ') || '—';
+}
+
+function summarizeFileNames(names, limit = 3, separator = ', ') {
+  const visibleNames = names.filter(Boolean);
+  if (visibleNames.length <= limit) return visibleNames.join(separator);
+  return `${visibleNames.slice(0, limit).join(separator)} 외 ${visibleNames.length - limit}개`;
 }
 
 function actionCell(action) {
@@ -772,7 +857,7 @@ async function runApply() {
   const names = items.map((item) => item.sourceFileName);
   const confirmationToken = names.join('\n');
   const accepted = window.confirm(
-    `${names.join('\n')}\n\n선택한 WAV ${items.length}개를 같은 changelist에서 Perforce move하고 Work Unit 경로를 변경합니다.\n하나라도 실패하면 이미 적용한 항목을 자동으로 복구합니다. 이 프로그램은 submit하지 않습니다. 계속할까요?`,
+    `${summarizeFileNames(names, 5, '\n')}\n\n선택한 WAV ${items.length}개를 같은 changelist에서 Perforce move하고 Work Unit 경로를 변경합니다.\n하나라도 실패하면 이미 적용한 항목을 자동으로 복구합니다. 이 프로그램은 submit하지 않습니다. 계속할까요?`,
   );
   if (!accepted) return;
   clearError();
@@ -803,8 +888,9 @@ async function runApply() {
 async function runRollback() {
   const operation = state.activeOperation;
   if (!operation) return;
+  const operationNames = operation.sourceFileNames || [operation.sourceFileName];
   const accepted = window.confirm(
-    `${operation.sourceFileName}\n\nmanifest에 기록된 WAV와 Work Unit만 원래 상태로 복구합니다. 계속할까요?`,
+    `${summarizeFileNames(operationNames, 5, '\n')}\n\nmanifest에 기록된 WAV ${operationNames.length}개와 Work Unit만 원래 상태로 복구합니다. 계속할까요?`,
   );
   if (!accepted) return;
   clearError();
@@ -952,6 +1038,7 @@ function resetResults() {
   element('doctor-report').hidden = true;
   element('plan-summary').hidden = true;
   element('plan-empty').hidden = false;
+  element('plan-bulk-actions').hidden = true;
   element('plan-table-body').replaceChildren();
   element('plan-table-wrap').hidden = true;
   element('validation-issues').hidden = true;
@@ -971,7 +1058,7 @@ function resetResults() {
   planStep?.classList.remove('active', 'done');
 }
 
-function loadPreview() {
+function loadPreview(previewMode = '1') {
   state.bridgeReady = false;
   element('bridge-status').textContent = '브라우저 미리보기';
   element('bridge-status').className = 'connection-badge preview';
@@ -1010,33 +1097,44 @@ function loadPreview() {
     checks: Object.keys(checkLabels).map((name) => ({name, status: 'pass', message: `${checkLabels[name]} 준비가 완료되었습니다.`})),
     reports: {markdown: 'data/reports/readiness.md'},
   });
+  const previewItems = previewMode === 'plan-100'
+    ? buildLargePlanPreview(100)
+    : [
+      {sourceFileName: 'CH04_S102_WT_001.wav', from: 'Originals/Voices/English(US)/Scenario/CH04/CH04_S102_WT_001.wav', to: 'Originals/Voices/English(US)/Script/CH04/CH04_S102_WT_001.wav', action: 'move-and-patch'},
+      {sourceFileName: 'CH04_S103_DI_004.wav', from: 'Originals/Voices/English(US)/Scenario/CH04/CH04_S103_DI_004.wav', to: 'Originals/Voices/English(US)/Dialog/CH04/CH04_S103_DI_004.wav', action: 'move-and-patch'},
+      {sourceFileName: 'CH04_S104_SQ_002.wav', from: 'Originals/Voices/English(US)/Scenario/CH04/CH04_S104_SQ_002.wav', to: 'Originals/Voices/English(US)/Cutscene/CH04/CH04_S104_SQ_002.wav', action: 'move-and-patch'},
+      {sourceFileName: 'CH04_CUT_010.wav', from: 'Originals/Voices/English(US)/Cutscene/CH04/CH04_CUT_010.wav', to: 'Originals/Voices/English(US)/Cutscene/CH04/CH04_CUT_010.wav', action: 'skip'},
+    ];
+  const previewCounts = previewItems.reduce((counts, item) => {
+    counts[item.action] = (counts[item.action] || 0) + 1;
+    return counts;
+  }, {'move-and-patch': 0, skip: 0, 'manual-review': 0});
   renderPlan({
-    counts: {'move-and-patch': 1, skip: 1, 'manual-review': 0},
+    counts: previewCounts,
     validation: {
       valid: true,
       issues: [],
     },
-    items: [
-      {sourceFileName: 'CH04_S102_WT_001.wav', from: 'Scenario/CH04/CH04_S102_WT_001.wav', to: 'Script/CH04/CH04_S102_WT_001.wav', action: 'move-and-patch'},
-      {sourceFileName: 'CH04_CUT_010.wav', from: 'Cutscene/CH04/CH04_CUT_010.wav', to: 'Cutscene/CH04/CH04_CUT_010.wav', action: 'skip'},
-    ],
+    items: previewItems,
     reports: {planMarkdown: 'data/reports/plan.md'},
   });
-  renderActiveOperation({
-    sourceFileName: 'CH04_S102_WT_001.wav',
-    from: 'Originals/Voices/English(US)/Scenario/CH04/CH04_S102_WT_001.wav',
-    to: 'Originals/Voices/English(US)/Script/CH04/CH04_S102_WT_001.wav',
-    objectPath: '\\Containers\\Default Work Unit\\VO\\Script\\CH04\\CH04_S102_WT_001',
-    changelist: '123456',
-    status: 'handed-off',
-    validated: false,
-    manifest: 'data/reports/apply/rollback-manifest.json',
-  });
-  renderApplyValidation({
-    valid: true,
-    validation: {valid: true, issues: []},
-    reports: {validation: 'data/reports/validate-apply/apply-validation.md'},
-  });
+  if (!previewMode.startsWith('plan')) {
+    renderActiveOperation({
+      sourceFileName: 'CH04_S102_WT_001.wav',
+      from: 'Originals/Voices/English(US)/Scenario/CH04/CH04_S102_WT_001.wav',
+      to: 'Originals/Voices/English(US)/Script/CH04/CH04_S102_WT_001.wav',
+      objectPath: '\\Containers\\Default Work Unit\\VO\\Script\\CH04\\CH04_S102_WT_001',
+      changelist: '123456',
+      status: 'handed-off',
+      validated: false,
+      manifest: 'data/reports/apply/rollback-manifest.json',
+    });
+    renderApplyValidation({
+      valid: true,
+      validation: {valid: true, issues: []},
+      reports: {validation: 'data/reports/validate-apply/apply-validation.md'},
+    });
+  }
   renderOperationHistory({
     entries: [
       {
@@ -1068,11 +1166,33 @@ function loadPreview() {
   setBusy(false, '브라우저 미리보기');
 }
 
+function buildLargePlanPreview(count) {
+  const targets = [
+    {folder: 'Script', code: 'WT'},
+    {folder: 'Dialog', code: 'DI'},
+    {folder: 'Cutscene', code: 'SQ'},
+    {folder: 'Dynamic', code: 'DY'},
+  ];
+  return Array.from({length: count}, (_, index) => {
+    const target = targets[index % targets.length];
+    const sequence = String(index + 1).padStart(3, '0');
+    const sourceFileName = `CH04_S${sequence}_${target.code}_001.wav`;
+    return {
+      sourceFileName,
+      from: `Originals/Voices/English(US)/Scenario/CH04/${sourceFileName}`,
+      to: `Originals/Voices/English(US)/${target.folder}/CH04/${sourceFileName}`,
+      action: 'move-and-patch',
+    };
+  });
+}
+
 element('choose-project').addEventListener('click', chooseProject);
 element('choose-p4').addEventListener('click', chooseP4);
 element('detect-p4-connection').addEventListener('click', detectP4Connection);
 element('run-doctor').addEventListener('click', runDoctor);
 element('run-plan').addEventListener('click', runPlan);
+element('select-all-plan').addEventListener('change', (event) => setAllPlanItemsSelected(event.target.checked));
+element('clear-plan-selection').addEventListener('click', () => setAllPlanItemsSelected(false));
 element('run-apply').addEventListener('click', runApply);
 element('run-validate-apply').addEventListener('click', runValidateApply);
 element('run-handoff-apply').addEventListener('click', runHandoffApply);
@@ -1083,8 +1203,9 @@ element('project-root').addEventListener('input', updateProjectState);
 element('offline-test-mode').addEventListener('change', changeOfflineMode);
 window.addEventListener('pywebviewready', initialize, {once: true});
 
-if (new URLSearchParams(window.location.search).get('preview') === '1') {
-  loadPreview();
+const previewMode = new URLSearchParams(window.location.search).get('preview');
+if (previewMode) {
+  loadPreview(previewMode);
 } else {
   window.setTimeout(() => {
     if (!state.bridgeReady) {
