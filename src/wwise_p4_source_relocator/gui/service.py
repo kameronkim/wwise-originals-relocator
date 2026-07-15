@@ -51,6 +51,7 @@ from ..validator import (
     validate_live_wwise_manifest_at_url,
 )
 from ..waapi_reader import WaapiError, scan_live
+from ..waapi_transport import parse_local_waapi_url
 
 
 LOGGER = logging.getLogger(__name__)
@@ -1351,16 +1352,10 @@ def _mark_perforce_skipped(readiness: PilotReadiness) -> PilotReadiness:
 
 def _waapi_endpoint(settings: Mapping[str, object]) -> tuple[str, int, str, bool]:
     url = _required_setting(settings, "waapiUrl")
-    from urllib.parse import urlparse
-
-    parsed = urlparse(url)
-    if (
-        parsed.scheme not in {"ws", "wss", "http", "https"}
-        or not parsed.hostname
-    ):
-        raise GuiServiceError(
-            "WAAPI 주소는 ws://, wss://, http:// 또는 https:// 형식이어야 합니다."
-        )
+    try:
+        parsed = parse_local_waapi_url(url)
+    except ValueError as exc:
+        raise GuiServiceError(str(exc)) from exc
     secure = parsed.scheme in {"wss", "https"}
     port = parsed.port or (443 if secure else 80)
     path = parsed.path or "/waapi"

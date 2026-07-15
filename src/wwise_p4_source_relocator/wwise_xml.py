@@ -5,8 +5,11 @@ from dataclasses import dataclass
 import hashlib
 from pathlib import Path, PurePosixPath
 import re
-from xml.sax.saxutils import escape
-from xml.etree import ElementTree
+from typing import Any
+from xml.sax.saxutils import escape  # nosec B406
+
+from defusedxml import ElementTree
+from defusedxml.common import DefusedXmlException
 
 from .models import SourceReference
 
@@ -54,13 +57,13 @@ def _local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
-def _children_named(element: ElementTree.Element, name: str):
+def _children_named(element: Any, name: str):
     for child in element.iter():
         if child is not element and _local_name(child.tag) == name:
             yield child
 
 
-def _first_text(element: ElementTree.Element, name: str) -> str | None:
+def _first_text(element: Any, name: str) -> str | None:
     for child in _children_named(element, name):
         if child.text and child.text.strip():
             return child.text.strip()
@@ -79,8 +82,10 @@ def parse_source_references(
     path = Path(wwu_path)
     try:
         root = ElementTree.parse(path).getroot()
-    except (OSError, ElementTree.ParseError) as exc:
-        raise WwuParseError(f"Unable to parse Wwise work unit {path}: {exc}") from exc
+    except (OSError, ElementTree.ParseError, DefusedXmlException) as exc:
+        raise WwuParseError(
+            f"Unable to parse Wwise work unit {path}: {exc}"
+        ) from exc
 
     root_path = Path(project_root) if project_root is not None else None
     if root_path is not None:
@@ -164,8 +169,10 @@ def prepare_source_path_patches(
     try:
         text = original.decode(encoding)
         root = ElementTree.fromstring(original)
-    except (UnicodeError, ElementTree.ParseError) as exc:
-        raise WwuPatchError(f"Unable to decode Wwise work unit {path}: {exc}") from exc
+    except (UnicodeError, ElementTree.ParseError, DefusedXmlException) as exc:
+        raise WwuPatchError(
+            f"Unable to decode Wwise work unit {path}: {exc}"
+        ) from exc
 
     prepared_changes: list[PreparedSourcePathChange] = []
     patched_text = text
@@ -215,8 +222,10 @@ def prepare_source_path_patches(
     try:
         patched = patched_text.encode(encoding)
         ElementTree.fromstring(patched)
-    except (UnicodeError, ElementTree.ParseError) as exc:
-        raise WwuPatchError(f"Patched Work Unit would be invalid XML: {exc}") from exc
+    except (UnicodeError, ElementTree.ParseError, DefusedXmlException) as exc:
+        raise WwuPatchError(
+            f"Patched Work Unit would be invalid XML: {exc}"
+        ) from exc
 
     return PreparedWwuPatch(
         original_bytes=original,
@@ -238,8 +247,10 @@ def source_path_count_for_guid(
 ) -> int:
     try:
         root = ElementTree.parse(wwu_path).getroot()
-    except (OSError, ElementTree.ParseError) as exc:
-        raise WwuParseError(f"Unable to parse Wwise work unit {wwu_path}: {exc}") from exc
+    except (OSError, ElementTree.ParseError, DefusedXmlException) as exc:
+        raise WwuParseError(
+            f"Unable to parse Wwise work unit {wwu_path}: {exc}"
+        ) from exc
     sounds = [
         node
         for node in root.iter()

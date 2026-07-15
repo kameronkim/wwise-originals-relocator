@@ -5,13 +5,13 @@ from multiprocessing import get_context
 from pathlib import Path, PurePosixPath
 from queue import Empty
 from typing import Protocol
-from urllib.parse import urlparse
 
 from .models import ScanResult, SourceItem
 from .planner import SUPPORTED_CATEGORIES
 from .waapi_transport import (
     HttpWaapiConnection,
     WaapiCallError,
+    parse_local_waapi_url,
     waapi_websocket_is_reachable,
 )
 
@@ -82,7 +82,10 @@ def scan_live(
     timeout_seconds: float = WAAPI_SCAN_TIMEOUT_SECONDS,
 ) -> ScanResult:
     endpoint = url or "ws://127.0.0.1:8080/waapi"
-    parsed = urlparse(endpoint)
+    try:
+        parsed = parse_local_waapi_url(endpoint)
+    except ValueError as exc:
+        raise WaapiError(str(exc)) from exc
     if parsed.scheme in {"http", "https"} and parsed.hostname:
         try:
             return scan_with_connection(

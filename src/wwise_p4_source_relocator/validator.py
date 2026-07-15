@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 import subprocess
 from typing import Protocol
-from urllib.parse import urlparse
 
 from .models import (
     AffectedObjectRecord,
@@ -15,7 +14,11 @@ from .models import (
 )
 from .p4_client import P4Client, parse_p4_tagged_records
 from .project_paths import UnsafeProjectPath, resolve_project_path
-from .waapi_transport import HttpWaapiConnection, WaapiCallError
+from .waapi_transport import (
+    HttpWaapiConnection,
+    WaapiCallError,
+    parse_local_waapi_url,
+)
 from .wwise_xml import WwuParseError, source_path_count_for_guid
 
 
@@ -428,11 +431,10 @@ def _validate_live_wwise_record(
 def validate_live_wwise_manifest_at_url(
     manifest: RollbackManifest, *, url: str | None = None
 ) -> ValidationResult:
-    scheme = urlparse(url).scheme if url is not None else None
-    if url is not None and scheme not in {"ws", "wss", "http", "https"}:
-        raise RuntimeError(
-            "Live Wwise validation requires a ws://, wss://, http://, or https:// URL"
-        )
+    try:
+        scheme = parse_local_waapi_url(url).scheme if url is not None else None
+    except ValueError as exc:
+        raise RuntimeError(f"Live Wwise validation failed: {exc}") from exc
     if scheme in {"http", "https"}:
         try:
             return validate_live_wwise_manifest(

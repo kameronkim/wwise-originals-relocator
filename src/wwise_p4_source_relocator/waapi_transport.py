@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path, PureWindowsPath
@@ -12,7 +13,7 @@ import sys
 from typing import Literal
 from urllib.error import HTTPError, URLError
 from urllib.parse import ParseResult, urlparse, urlunparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 WaapiTransport = Literal["wamp", "http"]
@@ -38,8 +39,19 @@ class WaapiDetection:
     issue: WaapiIssue | None = None
 
 
+class _RejectRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, *_: object, **__: object) -> None:
+        return None
+
+
+_LOCAL_HTTP_OPENER = build_opener(_RejectRedirectHandler())
+
+
 class HttpWaapiConnection:
     def __init__(self, url: str, *, timeout: float = 3.0) -> None:
+        parsed = parse_local_waapi_url(url)
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError("HTTP WAAPI URL must use http:// or https://")
         self.url = url
         self.timeout = timeout
 
@@ -61,7 +73,9 @@ class HttpWaapiConnection:
             method="POST",
         )
         try:
-            with urlopen(request, timeout=self.timeout) as response:
+            with _LOCAL_HTTP_OPENER.open(
+                request, timeout=self.timeout
+            ) as response:
                 payload = response.read()
         except HTTPError as exc:
             payload = exc.read()
@@ -85,11 +99,12 @@ def detect_waapi_endpoint(
     project_root: str | Path,
     timeout: float = 1.0,
 ) -> WaapiDetection:
-    parsed = urlparse(configured_url)
-    if not parsed.hostname:
+    try:
+        parsed = parse_local_waapi_url(configured_url)
+    except ValueError as exc:
         return WaapiDetection(
             None,
-            "WAAPI URL must include a host",
+            str(exc),
             "unreachable",
         )
     if parsed.scheme in {"http", "https"}:
@@ -98,10 +113,10 @@ def detect_waapi_endpoint(
             project_root=project_root,
             timeout=timeout,
         )
-    if parsed.scheme not in {"ws", "wss"} or not parsed.hostname:
+    if parsed.scheme not in {"ws", "wss"}:
         return WaapiDetection(
             None,
-            "WAAPI URL must use ws://, wss://, http://, or https://",
+            "WAAPI WAMP URL must use ws:// or wss://",
             "unreachable",
         )
 
@@ -149,11 +164,15 @@ def waapi_websocket_is_reachable(
 ) -> bool:
     """Verify that an endpoint accepts the WebSocket protocol used by WAAPI."""
 
+    if not _is_loopback_host(host):
+        return False
+
     normalized_path = path if path.startswith("/") else f"/{path}"
     nonce = base64.b64encode(os.urandom(16)).decode("ascii")
     expected_accept = base64.b64encode(
         hashlib.sha1(
-            (nonce + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")
+            (nonce + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii"),
+            usedforsecurity=False,
         ).digest()
     ).decode("ascii")
     request = (
@@ -238,6 +257,30 @@ def _default_http_url(parsed: ParseResult) -> str:
         host = f"[{host}]"
     scheme = "https" if parsed.scheme == "wss" else "http"
     return urlunparse((scheme, f"{host}:8090", "/waapi", "", "", ""))
+
+
+def parse_local_waapi_url(url: str) -> ParseResult:
+    """Accept only the local WAAPI endpoints exposed by Wwise Authoring."""
+
+    parsed = urlparse(url)
+    if parsed.scheme not in {"ws", "wss", "http", "https"}:
+        raise ValueError(
+            "WAAPI URL must use ws://, wss://, http://, or https://"
+        )
+    if not parsed.hostname:
+        raise ValueError("WAAPI URL must include a host")
+    if not _is_loopback_host(parsed.hostname):
+        raise ValueError("WAAPI URL must target localhost")
+    return parsed
+
+
+def _is_loopback_host(host: str) -> bool:
+    if host.casefold() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def _response_matches_project(

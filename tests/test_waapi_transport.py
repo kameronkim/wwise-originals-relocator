@@ -31,9 +31,9 @@ class HttpWaapiConnectionTests(unittest.TestCase):
     def test_posts_an_rpc_call_to_the_waapi_endpoint(self) -> None:
         response = FakeHttpResponse({"return": [{"id": "project"}]})
         with patch(
-            "wwise_p4_source_relocator.waapi_transport.urlopen",
+            "wwise_p4_source_relocator.waapi_transport._LOCAL_HTTP_OPENER.open",
             return_value=response,
-        ) as urlopen:
+        ) as open_url:
             result = HttpWaapiConnection(
                 "http://127.0.0.1:8090/waapi"
             ).call(
@@ -42,12 +42,20 @@ class HttpWaapiConnectionTests(unittest.TestCase):
                 options={"return": ["filePath"]},
             )
 
-        request = urlopen.call_args.args[0]
+        request = open_url.call_args.args[0]
         body = json.loads(request.data.decode("utf-8"))
         self.assertEqual("ak.wwise.core.object.get", body["uri"])
         self.assertEqual({"waql": "from type project"}, body["args"])
         self.assertEqual({"return": ["filePath"]}, body["options"])
         self.assertEqual("project", result["return"][0]["id"])
+
+    def test_rejects_non_local_http_endpoints(self) -> None:
+        with self.assertRaisesRegex(ValueError, "target localhost"):
+            HttpWaapiConnection("http://192.0.2.10:8090/waapi")
+
+    def test_rejects_non_http_schemes(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must use"):
+            HttpWaapiConnection("file:///tmp/waapi")
 
 
 class WaapiDetectionTests(unittest.TestCase):
@@ -131,6 +139,17 @@ class WaapiDetectionTests(unittest.TestCase):
 
         self.assertIsNone(detected.endpoint)
         self.assertEqual("project-mismatch", detected.issue)
+
+    def test_rejects_non_local_discovery_endpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = self.make_project(Path(directory))
+            detected = detect_waapi_endpoint(
+                "ws://example.com:8080/waapi", project_root=project
+            )
+
+        self.assertIsNone(detected.endpoint)
+        self.assertEqual("unreachable", detected.issue)
+        self.assertIn("localhost", detected.message)
 
 
 if __name__ == "__main__":
