@@ -31,6 +31,9 @@ dependencies.
 The application does not install Wwise, Perforce, WebView2, or system web
 components.
 
+WAAPI connections are limited to `localhost` and loopback IP addresses. Wwise
+Authoring and the portable app must run on the same computer.
+
 The GUI reads the effective non-secret Perforce settings reported by `p4 set`.
 If `P4CLIENT` is missing, it checks the current user's workspaces on the current
 host and selects one only when exactly one workspace maps the chosen Wwise

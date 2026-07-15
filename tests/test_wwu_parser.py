@@ -42,6 +42,18 @@ class ParseSourceReferencesTests(unittest.TestCase):
             with self.assertRaisesRegex(WwuParseError, "missing its Name or ID"):
                 parse_source_references(path)
 
+    def test_rejects_xml_entity_declarations(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "unsafe.wwu"
+            path.write_text(
+                "<!DOCTYPE WwiseDocument [<!ENTITY unsafe 'expanded'>]>"
+                "<WwiseDocument><Sound Name='&unsafe;' "
+                "ID='{00000000-0000-0000-0000-000000000000}'/></WwiseDocument>",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(WwuParseError, "Unable to parse"):
+                parse_source_references(path)
+
 
 if __name__ == "__main__":
     unittest.main()
