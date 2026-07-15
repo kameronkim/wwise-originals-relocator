@@ -20,6 +20,8 @@ Target: `v0.1.0`
 - Run post-apply `p4 fstat` with explicit tagged output so successful
   `move/add`, `move/delete`, and Work Unit `edit` records are parsed instead of
   being incorrectly reported as missing and automatically rolled back.
+- Let the macOS build script reuse or create its local virtual environment and
+  discover `python3` when the legacy `python` command is unavailable.
 
 ### Changed
 
@@ -35,6 +37,7 @@ Target: `v0.1.0`
 - The Windows Actions integration creates a real disposable `p4d`, validates
   three structured opened records, reaches `awaiting-wwise-reload`, and rolls
   the operation back successfully.
+- The macOS arm64 portable executable passes its packaged smoke check.
 - A real multi-file Wwise and Perforce pilot remains outstanding; this build is
   a release candidate and is not the final `v0.1.0` release.
 
