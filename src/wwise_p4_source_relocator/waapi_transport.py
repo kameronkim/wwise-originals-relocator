@@ -13,7 +13,7 @@ import sys
 from typing import Literal
 from urllib.error import HTTPError, URLError
 from urllib.parse import ParseResult, urlparse, urlunparse
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 
 WaapiTransport = Literal["wamp", "http"]
@@ -44,7 +44,11 @@ class _RejectRedirectHandler(HTTPRedirectHandler):
         return None
 
 
-_LOCAL_HTTP_OPENER = build_opener(_RejectRedirectHandler())
+def _build_local_http_opener():
+    return build_opener(ProxyHandler({}), _RejectRedirectHandler())
+
+
+_LOCAL_HTTP_OPENER = _build_local_http_opener()
 
 
 class HttpWaapiConnection:
@@ -271,6 +275,14 @@ def parse_local_waapi_url(url: str) -> ParseResult:
         raise ValueError("WAAPI URL must include a host")
     if not _is_loopback_host(parsed.hostname):
         raise ValueError("WAAPI URL must target localhost")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError(
+            "WAAPI URL port must be a number between 1 and 65535"
+        ) from exc
+    if port is not None and port < 1:
+        raise ValueError("WAAPI URL port must be between 1 and 65535")
     return parsed
 
 
