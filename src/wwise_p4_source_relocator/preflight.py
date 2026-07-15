@@ -17,6 +17,8 @@ class WorkspaceProbe(Protocol):
 
     def is_opened(self, path: Path) -> bool: ...
 
+    def has_local_changes(self, path: Path) -> bool: ...
+
 
 class P4WorkspaceProbe:
     def __init__(
@@ -46,13 +48,19 @@ class P4WorkspaceProbe:
             and "not opened" not in output.casefold()
         )
 
-    def _run(self, operation: str, path: Path) -> subprocess.CompletedProcess[str]:
+    def has_local_changes(self, path: Path) -> bool:
+        result = self._run("diff", "-se", path)
+        return not p4_result_has_error(result) and bool(result.stdout.strip())
+
+    def _run(
+        self, operation: str, *args: str | Path
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             (
                 self.executable,
                 *self.connection.global_options(),
                 operation,
-                str(path),
+                *(str(arg) for arg in args),
             ),
             capture_output=True,
             text=True,
@@ -84,6 +92,31 @@ def validate_relocation_plan(
     p4_available = workspace.is_available()
     if not p4_available:
         issues.append(ValidationIssue("p4-unavailable", "p4 CLI is not available"))
+
+    workspace_membership: dict[str, bool] = {}
+    opened_state: dict[str, bool] = {}
+    local_change_state: dict[str, bool] = {}
+
+    def path_key(path: Path) -> str:
+        return str(path.resolve()).casefold()
+
+    def is_in_workspace(path: Path) -> bool:
+        key = path_key(path)
+        if key not in workspace_membership:
+            workspace_membership[key] = workspace.is_in_workspace(path)
+        return workspace_membership[key]
+
+    def is_opened(path: Path) -> bool:
+        key = path_key(path)
+        if key not in opened_state:
+            opened_state[key] = workspace.is_opened(path)
+        return opened_state[key]
+
+    def has_local_changes(path: Path) -> bool:
+        key = path_key(path)
+        if key not in local_change_state:
+            local_change_state[key] = workspace.has_local_changes(path)
+        return local_change_state[key]
 
     for item in plan.items:
         if item.action == "manual-review":
@@ -150,7 +183,7 @@ def validate_relocation_plan(
                 (work_unit, "Work Unit"),
             )
             for path, label in workspace_paths:
-                if not workspace.is_in_workspace(path):
+                if not is_in_workspace(path):
                     issues.append(
                         ValidationIssue(
                             "outside-workspace",
@@ -159,7 +192,7 @@ def validate_relocation_plan(
                         )
                     )
             for path, label in ((source, "Source WAV"), (work_unit, "Work Unit")):
-                if workspace.is_opened(path):
+                if is_opened(path):
                     issues.append(
                         ValidationIssue(
                             "already-opened",
@@ -167,5 +200,14 @@ def validate_relocation_plan(
                             item.object_path,
                         )
                     )
+            if has_local_changes(work_unit):
+                issues.append(
+                    ValidationIssue(
+                        "work-unit-local-changes",
+                        "Work Unit has existing local changes outside this "
+                        f"operation: {work_unit}",
+                        item.object_path,
+                    )
+                )
 
     return ValidationResult(tuple(issues))

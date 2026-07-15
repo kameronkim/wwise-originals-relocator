@@ -85,6 +85,9 @@ class LocalTestWorkspaceProbe:
     def is_opened(self, path: Path) -> bool:
         return False
 
+    def has_local_changes(self, path: Path) -> bool:
+        return False
+
 
 class PortableSettingsStore:
     def __init__(self, data_root: str | Path | None = None) -> None:

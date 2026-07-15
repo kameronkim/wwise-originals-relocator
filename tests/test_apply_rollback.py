@@ -41,6 +41,9 @@ class CleanWorkspaceProbe:
     def is_opened(self, path: Path) -> bool:
         return False
 
+    def has_local_changes(self, path: Path) -> bool:
+        return False
+
 
 class FakeP4(P4Client):
     def __init__(
