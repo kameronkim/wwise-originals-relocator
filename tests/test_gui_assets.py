@@ -15,8 +15,8 @@ class GuiAssetTests(unittest.TestCase):
     def test_desktop_assets_are_packaged_together(self) -> None:
         index = (ASSET_ROOT / "index.html").read_text(encoding="utf-8")
 
-        self.assertIn('href="styles.css?v=11"', index)
-        self.assertIn('src="app.js?v=12"', index)
+        self.assertIn('href="styles.css?v=12"', index)
+        self.assertIn('src="app.js?v=13"', index)
         self.assertTrue((ASSET_ROOT / "styles.css").is_file())
         self.assertTrue((ASSET_ROOT / "app.js").is_file())
 
@@ -30,6 +30,7 @@ class GuiAssetTests(unittest.TestCase):
         self.assertIn('id="run-validate-apply"', index)
         self.assertIn('id="run-handoff-apply"', index)
         self.assertIn('id="run-check-handoff"', index)
+        self.assertIn('id="apply-perforce-summary"', index)
         self.assertIn('id="refresh-history"', index)
         self.assertIn("'run_apply'", script)
         self.assertIn("'run_rollback'", script)
@@ -48,6 +49,7 @@ class GuiAssetTests(unittest.TestCase):
         self.assertIn("buildLargePlanPreview", script)
         self.assertIn("result.objectRoot", script)
         self.assertIn("formatMilliseconds", script)
+        self.assertIn("renderPerforceValidation", script)
         self.assertIn("p4.elapsedMs", script)
         self.assertIn("이동 가능 전체 선택", index)
         self.assertIn("현재 폴더", index)

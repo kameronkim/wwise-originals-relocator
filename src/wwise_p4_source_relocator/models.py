@@ -242,16 +242,20 @@ class ValidationIssue:
 @dataclass(frozen=True, slots=True)
 class ValidationResult:
     issues: tuple[ValidationIssue, ...]
+    details: dict[str, object] | None = None
 
     @property
     def is_valid(self) -> bool:
         return not self.issues
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        document: dict[str, object] = {
             "valid": self.is_valid,
             "issues": [issue.to_dict() for issue in self.issues],
         }
+        if self.details:
+            document["details"] = self.details
+        return document
 
 
 @dataclass(frozen=True, slots=True)

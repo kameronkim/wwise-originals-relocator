@@ -683,7 +683,16 @@ class PortableGuiServiceTests(unittest.TestCase):
             service = self.make_service(
                 root / "data",
                 applier=fake_apply,
-                applied_validator=lambda *_, **__: ValidationResult((local_issue,)),
+                applied_validator=lambda *_, **__: ValidationResult(
+                    (local_issue,),
+                    details={
+                        "perforce": {
+                            "changelist": "123",
+                            "expectedFileCount": 3,
+                            "actualFileCount": 2,
+                        }
+                    },
+                ),
                 live_validator=lambda *_, **__: ValidationResult((live_issue,)),
                 p4_client_factory=lambda *_: object(),
                 workspace_probe_factory=lambda *_: object(),
@@ -698,6 +707,10 @@ class PortableGuiServiceTests(unittest.TestCase):
             self.assertEqual(
                 ["target-missing", "wwise-source-mismatch"],
                 [issue["code"] for issue in result["validation"]["issues"]],
+            )
+            self.assertEqual(
+                "123",
+                result["validation"]["details"]["perforce"]["changelist"],
             )
 
     def test_gui_rejects_live_validation_for_failed_manifest(self) -> None:

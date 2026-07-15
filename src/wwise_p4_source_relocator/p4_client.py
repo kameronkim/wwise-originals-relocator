@@ -140,8 +140,26 @@ class P4Client:
             )
         )
 
-    def opened(self, *paths: str | Path) -> P4Command:
-        return self.command("opened", *paths)
+    def opened(
+        self,
+        *paths: str | Path,
+        changelist: str | None = None,
+    ) -> P4Command:
+        args: list[str | Path] = []
+        if changelist is not None:
+            args.extend(("-c", changelist))
+        args.extend(paths)
+        return self.command("opened", *args)
+
+    def fstat_opened(self, *paths: str | Path) -> P4Command:
+        return self.command(
+            "fstat",
+            "-Ro",
+            "-Or",
+            "-T",
+            "depotFile,clientFile,path,action,change,movedFile",
+            *paths,
+        )
 
     def where(self, path: str | Path) -> P4Command:
         return self.command("where", path)
@@ -440,6 +458,14 @@ def _parse_ztag_records(
     if current:
         records.append(current)
     return tuple(records)
+
+
+def parse_p4_tagged_records(
+    output: str, *, record_key: str = "depotFile"
+) -> tuple[dict[str, str], ...]:
+    """Parse stable tagged P4 records returned by commands such as fstat."""
+
+    return _parse_ztag_records(output, record_key=record_key)
 
 
 def _parse_p4_set(output: str) -> dict[str, str]:
