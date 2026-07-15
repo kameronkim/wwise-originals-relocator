@@ -10,7 +10,7 @@ the result against the filesystem, Perforce, and live Wwise objects.
 ## Download
 
 The current build is the
-[v0.1.0-rc.6 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.6):
+[v0.1.0-rc.7 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.7):
 
 - Windows x64 portable ZIP
 - macOS arm64 portable ZIP
@@ -92,6 +92,6 @@ The application acts only on the selected WAV files and affected Work Units.
 Existing files already open in the workspace are not included in its validation,
 submission, or rollback scope.
 
-`v0.1.0-rc.6` remains a pre-release because a real multi-file Wwise and
+`v0.1.0-rc.7` remains a pre-release because a real multi-file Wwise and
 Perforce apply/validate/rollback pilot is still required before final
 `v0.1.0` approval.

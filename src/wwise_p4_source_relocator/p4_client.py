@@ -50,6 +50,7 @@ class P4CommandError(subprocess.CalledProcessError):
 @dataclass(frozen=True, slots=True)
 class P4Command:
     argv: tuple[str, ...]
+    tagged: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,14 +131,20 @@ class P4Client:
         self.dry_run = dry_run
         self.timeout = timeout
 
-    def command(self, operation: str, *args: str | Path) -> P4Command:
+    def command(
+        self,
+        operation: str,
+        *args: str | Path,
+        tagged: bool = False,
+    ) -> P4Command:
         return P4Command(
             (
                 self.executable,
                 *self.connection.global_options(),
                 operation,
                 *(str(arg) for arg in args),
-            )
+            ),
+            tagged=tagged,
         )
 
     def opened(
@@ -159,6 +166,7 @@ class P4Client:
             "-T",
             "depotFile,clientFile,path,action,change,movedFile",
             *paths,
+            tagged=True,
         )
 
     def where(self, path: str | Path) -> P4Command:
@@ -201,7 +209,8 @@ class P4Client:
             raise P4ExecutionDisabled(
                 "p4 execution is disabled; construct and inspect commands only"
             )
-        argv = (command.argv[0], "-s", *command.argv[1:])
+        output_options = ("-ztag",) if command.tagged else ("-s",)
+        argv = (command.argv[0], *output_options, *command.argv[1:])
         result = run_p4_process(argv, timeout=self.timeout)
         status_output = f"{result.stdout}\n{result.stderr}"
         has_reported_error = _output_has_error(status_output)
@@ -212,10 +221,13 @@ class P4Client:
                 output=result.stdout,
                 stderr=result.stderr,
             )
+        stdout = result.stdout if command.tagged else _strip_status_prefixes(
+            result.stdout
+        )
         return subprocess.CompletedProcess(
             command.argv,
             result.returncode,
-            stdout=_strip_status_prefixes(result.stdout),
+            stdout=stdout,
             stderr=result.stderr,
         )
 
@@ -488,11 +500,19 @@ def p4_result_has_error(result: subprocess.CompletedProcess[str]) -> bool:
 
 def _output_has_error(output: str) -> bool:
     return any(
-        line.strip().casefold().startswith(
-            ("error:", "fatal:", "perforce client error:")
-        )
+        _line_reports_error(line)
         for line in output.splitlines()
     )
+
+
+def _line_reports_error(line: str) -> bool:
+    normalized = line.strip().casefold()
+    if normalized.startswith(("error:", "fatal:", "perforce client error:")):
+        return True
+    if normalized == "... code error":
+        return True
+    match = re.match(r"^\.\.\.\s+severity\s+(\d+)$", normalized)
+    return bool(match and int(match.group(1)) >= 3)
 
 
 def _path_is_within(path: Path, root: Path) -> bool:
