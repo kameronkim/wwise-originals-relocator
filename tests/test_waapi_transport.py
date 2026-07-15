@@ -5,10 +5,13 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.request import ProxyHandler
 
 from wwise_p4_source_relocator.waapi_transport import (
     HttpWaapiConnection,
     WaapiCallError,
+    _LOCAL_HTTP_OPENER,
+    _build_local_http_opener,
     detect_waapi_endpoint,
 )
 
@@ -56,6 +59,38 @@ class HttpWaapiConnectionTests(unittest.TestCase):
     def test_rejects_non_http_schemes(self) -> None:
         with self.assertRaisesRegex(ValueError, "must use"):
             HttpWaapiConnection("file:///tmp/waapi")
+
+    def test_disables_proxies_for_local_http_requests(self) -> None:
+        empty_proxy_handler = object()
+        with (
+            patch(
+                "wwise_p4_source_relocator.waapi_transport.ProxyHandler",
+                return_value=empty_proxy_handler,
+            ) as proxy_handler,
+            patch(
+                "wwise_p4_source_relocator.waapi_transport.build_opener"
+            ) as build,
+        ):
+            _build_local_http_opener()
+
+        proxy_handler.assert_called_once_with({})
+        self.assertIs(empty_proxy_handler, build.call_args.args[0])
+        self.assertFalse(
+            any(
+                isinstance(handler, ProxyHandler) and handler.proxies
+                for handler in _LOCAL_HTTP_OPENER.handlers
+            )
+        )
+
+    def test_rejects_invalid_local_http_ports(self) -> None:
+        for url in (
+            "http://127.0.0.1:not-a-port/waapi",
+            "http://127.0.0.1:0/waapi",
+            "http://127.0.0.1:99999/waapi",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaisesRegex(ValueError, "port"):
+                    HttpWaapiConnection(url)
 
 
 class WaapiDetectionTests(unittest.TestCase):
@@ -150,6 +185,21 @@ class WaapiDetectionTests(unittest.TestCase):
         self.assertIsNone(detected.endpoint)
         self.assertEqual("unreachable", detected.issue)
         self.assertIn("localhost", detected.message)
+
+    def test_reports_invalid_local_wamp_ports_as_unreachable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = self.make_project(Path(directory))
+            for url in (
+                "ws://127.0.0.1:not-a-port/waapi",
+                "ws://127.0.0.1:0/waapi",
+                "ws://127.0.0.1:99999/waapi",
+            ):
+                with self.subTest(url=url):
+                    detected = detect_waapi_endpoint(url, project_root=project)
+
+                    self.assertIsNone(detected.endpoint)
+                    self.assertEqual("unreachable", detected.issue)
+                    self.assertIn("port", detected.message)
 
 
 if __name__ == "__main__":

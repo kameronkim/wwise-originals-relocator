@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+from multiprocessing import get_context
 import os
 from pathlib import Path
+from queue import Empty
 import subprocess
 from typing import Protocol
 
@@ -23,6 +25,7 @@ from .wwise_xml import WwuParseError, source_path_count_for_guid
 
 
 DEFAULT_LIVE_WWISE_BATCH_SIZE = 32
+DEFAULT_LIVE_WWISE_TIMEOUT_SECONDS = 90.0
 DEFAULT_P4_VALIDATION_BATCH_SIZE = 32
 
 
@@ -444,6 +447,18 @@ def validate_live_wwise_manifest_at_url(
         except (WaapiCallError, OSError, ValueError) as exc:
             raise RuntimeError(f"Live Wwise validation failed: {exc}") from exc
 
+    return _run_bounded_live_wamp_validation(
+        manifest,
+        url=url,
+        timeout_seconds=DEFAULT_LIVE_WWISE_TIMEOUT_SECONDS,
+    )
+
+
+def _validate_live_wamp_unbounded(
+    manifest: RollbackManifest, *, url: str | None
+) -> ValidationResult:
+    """Run the blocking waapi-client validation inside a bounded worker."""
+
     try:
         from waapi import WaapiClient
     except ImportError as exc:
@@ -456,6 +471,68 @@ def validate_live_wwise_manifest_at_url(
             return validate_live_wwise_manifest(manifest, connection=connection)
     except Exception as exc:
         raise RuntimeError(f"Live Wwise validation failed: {exc}") from exc
+
+
+def _live_wamp_validation_worker(
+    result_queue: object,
+    manifest_values: dict[str, object],
+    url: str | None,
+) -> None:
+    try:
+        manifest = RollbackManifest.from_dict(manifest_values)
+        result = _validate_live_wamp_unbounded(manifest, url=url)
+    except Exception as exc:
+        result_queue.put(("error", str(exc)))
+    else:
+        result_queue.put(("ok", result.to_dict()))
+
+
+def _run_bounded_live_wamp_validation(
+    manifest: RollbackManifest,
+    *,
+    url: str | None,
+    timeout_seconds: float,
+    worker: object = _live_wamp_validation_worker,
+) -> ValidationResult:
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    context = get_context("spawn")
+    result_queue = context.Queue(maxsize=1)
+    process = context.Process(
+        target=worker,
+        args=(result_queue, manifest.to_dict(), url),
+        name="wwise-waapi-validation",
+        daemon=True,
+    )
+    process.start()
+    try:
+        try:
+            status, payload = result_queue.get(timeout=timeout_seconds)
+        except Empty as exc:
+            raise RuntimeError(
+                "Live Wwise validation timed out after "
+                f"{timeout_seconds:g} seconds"
+            ) from exc
+    finally:
+        process.join(timeout=0.5)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=1.0)
+        result_queue.close()
+        result_queue.join_thread()
+
+    if status == "error":
+        raise RuntimeError(str(payload))
+    if status != "ok" or not isinstance(payload, dict):
+        raise RuntimeError(
+            "Live Wwise validation process returned an invalid response"
+        )
+    try:
+        return ValidationResult.from_dict(payload)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            f"Live Wwise validation returned invalid data: {exc}"
+        ) from exc
 
 
 def _diff_contains_only_path_change(diff: str, old_path: str, new_path: str) -> bool:

@@ -238,6 +238,14 @@ class ValidationIssue:
             "objectPath": self.object_path,
         }
 
+    @classmethod
+    def from_dict(cls, value: dict[str, object]) -> "ValidationIssue":
+        return cls(
+            code=_required_string(value, "code"),
+            message=_required_string(value, "message"),
+            object_path=_optional_string(value.get("objectPath")),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class ValidationResult:
@@ -256,6 +264,21 @@ class ValidationResult:
         if self.details:
             document["details"] = self.details
         return document
+
+    @classmethod
+    def from_dict(cls, value: dict[str, object]) -> "ValidationResult":
+        raw_issues = value.get("issues")
+        if not isinstance(raw_issues, list) or not all(
+            isinstance(issue, dict) for issue in raw_issues
+        ):
+            raise ValueError("Validation issues must be a list of objects")
+        details = value.get("details")
+        if details is not None and not isinstance(details, dict):
+            raise ValueError("Validation details must be an object or null")
+        return cls(
+            tuple(ValidationIssue.from_dict(issue) for issue in raw_issues),
+            details=dict(details) if details else None,
+        )
 
 
 @dataclass(frozen=True, slots=True)
