@@ -6,7 +6,7 @@ import subprocess
 from typing import Protocol
 
 from .models import RelocationPlan, ValidationIssue, ValidationResult
-from .p4_client import P4Connection, p4_result_has_error
+from .p4_client import P4Connection, p4_result_has_error, run_p4_process
 from .project_paths import UnsafeProjectPath, resolve_project_path
 
 
@@ -55,16 +55,13 @@ class P4WorkspaceProbe:
     def _run(
         self, operation: str, *args: str | Path
     ) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
+        return run_p4_process(
             (
                 self.executable,
                 *self.connection.global_options(),
                 operation,
                 *(str(arg) for arg in args),
-            ),
-            capture_output=True,
-            text=True,
-            check=False,
+            )
         )
 
 

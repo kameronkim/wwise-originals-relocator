@@ -13,6 +13,31 @@ from typing import Mapping
 LOGGER = logging.getLogger(__name__)
 LOGGER.addHandler(logging.NullHandler())
 
+DEFAULT_P4_TIMEOUT = 30.0
+
+
+def p4_creation_flags(os_name: str | None = None) -> int:
+    if (os_name or os.name) != "nt":
+        return 0
+    return int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def run_p4_process(
+    argv: tuple[str, ...],
+    *,
+    cwd: str | Path | None = None,
+    timeout: float = DEFAULT_P4_TIMEOUT,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        argv,
+        cwd=str(cwd) if cwd is not None else None,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=timeout,
+        creationflags=p4_creation_flags(),
+    )
+
 
 class P4ExecutionDisabled(RuntimeError):
     """Raised when code attempts to execute through a dry-run client."""
@@ -98,10 +123,12 @@ class P4Client:
         executable: str = "p4",
         connection: P4Connection | None = None,
         dry_run: bool = True,
+        timeout: float = DEFAULT_P4_TIMEOUT,
     ) -> None:
         self.executable = executable
         self.connection = connection or P4Connection()
         self.dry_run = dry_run
+        self.timeout = timeout
 
     def command(self, operation: str, *args: str | Path) -> P4Command:
         return P4Command(
@@ -157,12 +184,7 @@ class P4Client:
                 "p4 execution is disabled; construct and inspect commands only"
             )
         argv = (command.argv[0], "-s", *command.argv[1:])
-        result = subprocess.run(
-            argv,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        result = run_p4_process(argv, timeout=self.timeout)
         status_output = f"{result.stdout}\n{result.stderr}"
         has_reported_error = _output_has_error(status_output)
         if result.returncode != 0 or has_reported_error:
@@ -196,12 +218,9 @@ def query_p4_connection(
         "-ztag",
         "info",
     )
-    result = subprocess.run(
+    result = run_p4_process(
         argv,
         cwd=str(cwd) if cwd is not None else None,
-        capture_output=True,
-        text=True,
-        check=False,
         timeout=timeout,
     )
     if result.returncode != 0 or _output_has_error(
@@ -273,12 +292,9 @@ def _query_local_p4_settings(
     """Read non-secret P4 settings without treating serverAddress as P4PORT."""
 
     try:
-        result = subprocess.run(
+        result = run_p4_process(
             (executable, "set"),
             cwd=str(cwd) if cwd is not None else None,
-            capture_output=True,
-            text=True,
-            check=False,
             timeout=timeout,
         )
     except (OSError, subprocess.SubprocessError):
@@ -307,7 +323,7 @@ def _matching_project_clients(
     if not connection.user:
         return ()
     try:
-        result = subprocess.run(
+        result = run_p4_process(
             (
                 executable,
                 *connection.global_options(),
@@ -317,9 +333,6 @@ def _matching_project_clients(
                 connection.user,
             ),
             cwd=str(project_path),
-            capture_output=True,
-            text=True,
-            check=False,
             timeout=timeout,
         )
     except (OSError, subprocess.SubprocessError):
@@ -348,7 +361,7 @@ def _matching_project_clients(
             charset=connection.charset,
         )
         try:
-            spec = subprocess.run(
+            spec = run_p4_process(
                 (
                     executable,
                     *candidate.global_options(),
@@ -358,9 +371,6 @@ def _matching_project_clients(
                     client,
                 ),
                 cwd=str(project_path),
-                capture_output=True,
-                text=True,
-                check=False,
                 timeout=timeout,
             )
             if p4_result_has_error(spec):
@@ -375,7 +385,7 @@ def _matching_project_clients(
                 _path_is_within(mapping_path, Path(root)) for root in roots
             ):
                 continue
-            where = subprocess.run(
+            where = run_p4_process(
                 (
                     executable,
                     *candidate.global_options(),
@@ -383,9 +393,6 @@ def _matching_project_clients(
                     str(mapping_path),
                 ),
                 cwd=str(project_path),
-                capture_output=True,
-                text=True,
-                check=False,
                 timeout=timeout,
             )
         except (OSError, subprocess.SubprocessError):
