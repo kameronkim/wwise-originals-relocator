@@ -471,6 +471,7 @@
           <div class="table-wrap" role="region" aria-label="이동 계획 예시" tabindex="0">
             <table><thead><tr><th>상태</th><th>Source</th><th>현재 위치</th><th>이동 위치</th></tr></thead><tbody><tr><td><span class="badge move">이동 가능</span></td><td>CH04_S102_WT_001.wav</td><td class="path">Scenario/CH04/...</td><td class="path">Script/CH04/...</td></tr><tr><td><span class="badge skip">이미 정리됨</span></td><td>CH04_CUT_010.wav</td><td class="path">Cutscene/CH04/...</td><td class="path">변경 없음</td></tr></tbody></table>
           </div>
+          <div class="callout"><svg class="icon"><use href="#i-route"></use></svg><div><strong>Object Root는 계획을 만들 때 보정됩니다</strong><p>입력한 상위 경로 아래에서 선택한 챕터와 지원 분류가 있는 단일 Root를 찾으면 고급 설정에 자동 저장합니다. 후보가 여러 개면 임의로 선택하지 않고 직접 확인하도록 안내합니다.</p></div></div>
           <div class="callout"><svg class="icon"><use href="#i-shield"></use></svg><div><strong>계획 단계까지는 변경이 없습니다</strong><p>사전 검증을 통과한 파일을 선택하고 최종 확인창을 승인한 뒤에만 실제 변경이 시작됩니다.</p></div></div>
         </section>
 
@@ -479,10 +480,11 @@
           <div class="timeline">
             <div class="timeline-item"><span class="timeline-dot"><svg class="icon"><use href="#i-files"></use></svg></span><div class="timeline-copy"><strong>1. 이동 가능 항목 선택</strong><p>사전 검증이 모두 통과한 뒤 적용할 WAV를 하나 이상 선택합니다.</p></div></div>
             <div class="timeline-item"><span class="timeline-dot"><svg class="icon"><use href="#i-terminal"></use></svg></span><div class="timeline-copy"><strong>2. 선택 파일 적용</strong><p>확인창의 전체 목록을 승인하면 <code>p4 edit</code>, <code>p4 move</code>와 정확한 Work Unit source 경로 변경을 실행합니다.</p></div></div>
-            <div class="timeline-item"><span class="timeline-dot"><svg class="icon"><use href="#i-radio"></use></svg></span><div class="timeline-copy"><strong>3. Wwise 다시 불러오기</strong><p>External Project Changes 안내에서 affected Work Unit을 다시 불러옵니다.</p></div></div>
-            <div class="timeline-item"><span class="timeline-dot"><svg class="icon"><use href="#i-checks"></use></svg></span><div class="timeline-copy"><strong>4. Wwise 반영 확인</strong><p>파일 위치, WWU 변경 범위, Perforce opened/diff와 live Wwise 객체를 한 번에 검증합니다.</p></div></div>
-            <div class="timeline-item"><span class="timeline-dot"><svg class="icon"><use href="#i-plug"></use></svg></span><div class="timeline-copy"><strong>5. P4V 검토 및 인계</strong><p>WAV move와 Work Unit diff를 최종 검토합니다. 프로그램은 submit하지 않습니다.</p></div></div>
-            <div class="timeline-item"><span class="timeline-dot"><svg class="icon"><use href="#i-shield"></use></svg></span><div class="timeline-copy"><strong>6. 마감 상태 확인</strong><p>P4V에서 submit 또는 revert를 마친 뒤 열린 파일과 Wwise 결과를 확인하고 다음 작업을 허용합니다.</p></div></div>
+            <div class="timeline-item"><span class="timeline-dot"><svg class="icon"><use href="#i-radio"></use></svg></span><div class="timeline-copy"><strong>3. Wwise Reload 대기 확인</strong><p>앱이 적용 완료로 확정하지 않고 <strong>Wwise Reload 필요</strong> 상태로 전환되는지 확인합니다.</p></div></div>
+            <div class="timeline-item"><span class="timeline-dot"><svg class="icon"><use href="#i-radio"></use></svg></span><div class="timeline-copy"><strong>4. Wwise 다시 불러오기</strong><p>그 상태가 표시된 뒤 External Project Changes 안내에서 affected Work Unit을 선택하고 <strong>Reload</strong>를 누릅니다.</p></div></div>
+            <div class="timeline-item"><span class="timeline-dot"><svg class="icon"><use href="#i-checks"></use></svg></span><div class="timeline-copy"><strong>5. Wwise 반영 확인</strong><p>Reload가 끝난 뒤 앱의 <strong>Wwise 반영 확인</strong>을 눌러 파일 위치, WWU 변경 범위, Perforce opened/diff와 live Wwise 객체를 검증합니다.</p></div></div>
+            <div class="timeline-item"><span class="timeline-dot"><svg class="icon"><use href="#i-plug"></use></svg></span><div class="timeline-copy"><strong>6. P4V 검토 및 인계</strong><p>WAV move와 Work Unit diff를 최종 검토합니다. 프로그램은 submit하지 않습니다.</p></div></div>
+            <div class="timeline-item"><span class="timeline-dot"><svg class="icon"><use href="#i-shield"></use></svg></span><div class="timeline-copy"><strong>7. 마감 상태 확인</strong><p>P4V에서 submit 또는 revert를 마친 뒤 열린 파일과 Wwise 결과를 확인하고 다음 작업을 허용합니다.</p></div></div>
           </div>
           <div class="rollback-branch"><svg class="icon"><use href="#i-rotate"></use></svg><span><strong>Rollback 경로:</strong> P4V 마감 전이라면 manifest에 기록된 WAV와 Work Unit만 역순으로 원래 상태로 복구할 수 있습니다.</span></div>
           <div class="callout danger"><svg class="icon"><use href="#i-alert"></use></svg><div><strong>프로그램은 submit하지 않습니다</strong><p>최종 제출은 팀의 기존 P4V 검토와 승인 절차를 사용하세요. 현재 작업을 마감하거나 Rollback하기 전에는 다음 적용을 시작할 수 없습니다.</p></div></div>
@@ -491,7 +493,7 @@
         <section id="history" class="section">
           <div class="section-heading"><div class="section-title-wrap"><span class="section-icon"><svg class="icon"><use href="#i-history"></use></svg></span><div><p class="section-kicker">Operation history</p><h2>최근 작업 기록</h2><p class="section-description">현재 프로젝트에서 앱으로 처리한 최근 작업을 최대 20개까지 보여줍니다. 조회만으로 Perforce 상태가 변경되지는 않습니다.</p></div></div></div>
           <div class="state-list">
-            <div class="state-row"><span class="status-badge pending">반영 확인 필요</span><p>파일 적용은 끝났지만 Wwise·Perforce 검증 또는 다음 처리가 남았습니다.</p></div>
+            <div class="state-row"><span class="status-badge pending">Wwise Reload 필요</span><p>파일 변경은 끝났지만 Wwise의 affected Work Unit Reload와 반영 확인이 남았습니다.</p></div>
             <div class="state-row"><span class="status-badge handoff">P4V 마감 대기</span><p>자동 검증을 통과하고 P4V의 submit 또는 revert를 기다립니다.</p></div>
             <div class="state-row"><span class="status-badge done">완료</span><p>P4V 마감과 Wwise 결과까지 확인되어 다음 작업을 시작할 수 있습니다.</p></div>
             <div class="state-row"><span class="status-badge rollback">Rollback 완료</span><p>manifest에 기록된 파일이 원래 상태로 복구되었습니다.</p></div>
@@ -506,8 +508,9 @@
             <details class="faq"><summary>운영체제가 확인되지 않은 앱이라고 표시함 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>개발용 artifact에는 Windows 코드 서명 또는 macOS notarization이 없을 수 있습니다. 보안 정책을 우회하지 말고 배포 담당자에게 승인된 빌드인지 확인하세요.</p></div></details>
             <details class="faq"><summary>Wwise 연결을 통과하지 못함 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>대상 프로젝트와 WAAPI가 활성화되어 있는지 확인하고 설정창이나 저장 확인창을 닫으세요. 프로젝트 불일치가 표시되면 선택한 폴더의 프로젝트를 Wwise에서 다시 엽니다.</p></div></details>
             <details class="faq"><summary>P4V는 연결되지만 Perforce 점검이 실패함 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p><strong>Workspace 선택 필요</strong>가 표시되면 P4V에서 이 프로젝트가 포함된 workspace를 선택한 뒤 <strong>고급 연결 설정 → 연결 불러오기</strong>를 누르세요. 서버 연결 실패와 workspace 미선택은 별도 항목으로 표시됩니다. 계속 연결을 찾지 못하면 <code>p4.exe</code>를 직접 선택하거나 P4V의 <strong>Tools → Manage Tools</strong>에 앱을 등록해 실행합니다.</p></div></details>
-            <details class="faq"><summary>이동 계획 만들기가 오래 걸림 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>현재 버전은 WAAPI 연결과 source 조회에 제한 시간을 적용합니다. 계속 대기한다면 앱을 닫고 최신 버전으로 다시 실행한 뒤 환경 확인부터 진행하세요.</p></div></details>
+            <details class="faq"><summary>이동 계획 또는 반영 확인이 오래 걸림 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>계획 보고서 옆에는 WAAPI, Perforce 명령 횟수·시간과 표 표시 시간이 나타납니다. Wwise 반영 확인 뒤에는 검증한 객체 수, WAAPI 요청 횟수와 전체 시간이 나타납니다. 각 보고서 폴더의 <code>performance.json</code>에서 상세 시간을 확인할 수 있습니다. 현재 버전은 읽기 전용 Perforce 조회와 live Wwise 객체 검증을 각각 제한된 크기의 묶음으로 처리합니다. 계속 대기한다면 이 파일과 로그를 함께 전달하세요.</p></div></details>
             <details class="faq"><summary>적용 후 Wwise에 이전 경로가 보임 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>External Project Changes에서 affected Work Unit을 다시 불러온 뒤 <strong>Wwise 반영 확인</strong>을 누르세요. 계속 실패하면 보고서를 확인하고 P4V 마감 전 Rollback을 진행합니다.</p></div></details>
+            <details class="faq"><summary>Work Unit 기존 변경 때문에 적용이 차단됨 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>앱이 수정할 <code>.wwu</code>에 다른 로컬 변경이 감지된 상태입니다. 해당 변경을 먼저 별도 changelist에 정리하거나 submit/revert한 뒤 환경 확인과 이동 계획을 다시 실행하세요. 다른 작업을 보존한 채 강제로 덮어쓰지는 않습니다.</p></div></details>
             <details class="faq"><summary>지원 요청에 필요한 정보 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><ul><li>화면에 표시된 실패 항목과 메시지</li><li><code>data/logs/relocator.log</code></li><li><code>VERSION.txt</code></li><li>해당 작업의 <code>data/reports</code> 폴더</li></ul></div></details>
           </div>
         </section>
@@ -518,6 +521,7 @@
             <article class="safety-item"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>선택 파일만 이동</strong><p>사전 검증을 통과한 선택 WAV만 같은 changelist에서 처리합니다.</p></div></article>
             <article class="safety-item"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>정확한 WWU 변경</strong><p>선택한 Wwise 객체 GUID의 source 경로만 수정합니다.</p></div></article>
             <article class="safety-item"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>Manifest 우선</strong><p>첫 변경 전에 rollback manifest를 저장합니다.</p></div></article>
+            <article class="safety-item"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>기존 WWU 변경 보호</strong><p>대상 Work Unit에 다른 로컬 변경이 있으면 첫 Perforce 변경 전에 적용을 차단합니다.</p></div></article>
             <article class="safety-item"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>묶음 자동 복구</strong><p>한 항목이라도 실패하면 이미 적용한 항목을 역순으로 복구합니다.</p></div></article>
             <article class="safety-item"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>적용 후 재검증</strong><p>로컬 파일, Perforce 상태와 live Wwise 객체를 다시 확인합니다.</p></div></article>
             <article class="safety-item"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>P4V 마감 잠금</strong><p>submit 또는 revert가 확인될 때까지 다음 적용을 막습니다.</p></div></article>

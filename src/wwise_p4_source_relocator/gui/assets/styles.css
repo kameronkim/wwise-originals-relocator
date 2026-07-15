@@ -152,19 +152,37 @@ input:disabled { cursor: not-allowed; opacity: 0.55; }
 .summary-strip strong, .summary-strip span { display: block; }
 .summary-strip strong { color: var(--blue-strong); font-size: 1.02rem; }
 .summary-strip span { color: var(--muted); font-size: 0.66rem; }
-.table-wrap { overflow-x: auto; border: 1px solid var(--line-soft); border-radius: 11px; }
+.plan-bulk-actions { min-height: 48px; display: flex; align-items: center; gap: 14px; padding: 9px 11px; border: 1px solid var(--line-soft); border-bottom: 0; border-radius: 11px 11px 0 0; background: #1b252c; }
+.bulk-select-control { display: inline-flex; align-items: center; gap: 9px; color: var(--text); font-size: 0.76rem; font-weight: 650; cursor: pointer; }
+.bulk-select-control input, .row-selector { width: 18px; height: 18px; min-width: 18px; margin: 0; padding: 0; accent-color: var(--blue); cursor: pointer; }
+.bulk-select-control input:disabled { cursor: not-allowed; opacity: 0.38; }
+.plan-selection-summary { display: flex; align-items: baseline; gap: 8px; padding-left: 14px; border-left: 1px solid var(--line-soft); }
+.plan-selection-summary strong { color: var(--blue-strong); font-size: 0.74rem; }
+.plan-selection-summary span { color: var(--muted); font-size: 0.68rem; }
+.plan-bulk-actions .text-button { min-height: 30px; margin-left: auto; font-size: 0.7rem; }
+.plan-bulk-actions .text-button:disabled { cursor: not-allowed; opacity: 0.38; }
+.table-wrap { max-height: min(62vh, 680px); overflow: auto; border: 1px solid var(--line-soft); border-radius: 0 0 11px 11px; scrollbar-gutter: stable; }
 table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+.plan-table { min-width: 920px; table-layout: fixed; }
+.plan-table .selection-column { width: 56px; }
+.plan-table .file-column { width: 20%; }
+.plan-table .path-column { width: 22%; }
+.plan-table .status-column { width: 104px; }
+.plan-table .reason-column { width: 18%; }
 th, td { padding: 11px 12px; border-bottom: 1px solid var(--line-soft); text-align: left; vertical-align: middle; }
 th { background: #1b252c; color: #94a2ac; font-size: 0.63rem; letter-spacing: 0.05em; text-transform: uppercase; }
+.plan-table th { position: sticky; top: 0; z-index: 2; box-shadow: 0 1px 0 var(--line-soft); }
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover { background: rgba(131, 183, 212, 0.05); }
-.file-name { color: var(--text); font-weight: 750; }
-.path-text { color: var(--muted); font-family: var(--mono); font-size: 0.67rem; overflow-wrap: anywhere; }
+.plan-table tbody tr.selected { background: rgba(131, 183, 212, 0.1); box-shadow: inset 3px 0 0 var(--blue); }
+.file-name { display: block; overflow: hidden; color: var(--text); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.path-text, .reason-text { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.path-text { color: var(--muted); font-family: var(--mono); font-size: 0.67rem; line-height: 1.45; overflow-wrap: normal; word-break: keep-all; }
+.reason-text { color: var(--muted); font-size: 0.68rem; line-height: 1.45; }
 .action-badge { display: inline-flex; padding: 4px 8px; border-radius: 999px; font-size: 0.64rem; font-weight: 800; white-space: nowrap; }
 .action-badge.move-and-patch { background: var(--blue-soft); color: var(--blue); }
 .action-badge.skip { background: #32414a; color: #bcc7ce; }
 .action-badge.manual-review { background: var(--amber-soft); color: var(--amber); }
-.row-selector { width: 18px; height: 18px; accent-color: var(--blue); cursor: pointer; }
 .row-selector:disabled { cursor: not-allowed; opacity: 0.32; }
 .validation-issues { margin-top: 12px; padding: 13px 15px; border: 1px solid #74633e; border-radius: 10px; background: var(--amber-soft); color: #dec391; }
 .validation-issues strong { font-size: 0.76rem; }
@@ -229,6 +247,8 @@ tbody tr:hover { background: rgba(131, 183, 212, 0.05); }
   .wide-field { grid-column: auto; }
   .offline-mode-option { grid-template-columns: 34px minmax(0, 1fr); }
   .offline-mode-badge { display: none; }
+  .plan-bulk-actions { flex-wrap: wrap; }
+  .plan-selection-summary { flex: 1 1 auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {

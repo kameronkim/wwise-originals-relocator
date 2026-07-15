@@ -41,6 +41,9 @@ class CleanWorkspaceProbe:
     def is_opened(self, path: Path) -> bool:
         return False
 
+    def has_local_changes(self, path: Path) -> bool:
+        return False
+
 
 class FakeP4(P4Client):
     def __init__(
@@ -213,10 +216,13 @@ class ApplyRollbackTests(unittest.TestCase):
         self.assertTrue(p4.manifest_prepared_before_mutation)
         mutation_operations = [call[1] for call in p4.calls[:3]]
         self.assertEqual(["edit", "edit", "move"], mutation_operations)
-        self.assertEqual("applied", manifest.status)
+        self.assertEqual("awaiting-wwise-reload", manifest.status)
         self.assertFalse(source.exists())
         self.assertTrue(target.is_file())
-        self.assertEqual("applied", read_rollback_manifest(self.manifest_path).status)
+        self.assertEqual(
+            "awaiting-wwise-reload",
+            read_rollback_manifest(self.manifest_path).status,
+        )
 
         live = validate_live_wwise_manifest(
             manifest,
@@ -373,6 +379,31 @@ class ApplyRollbackTests(unittest.TestCase):
         self.assertEqual(
             "rolled-back", read_rollback_manifest(self.manifest_path).status
         )
+
+    def test_rollback_hash_mismatch_reports_expected_and_actual_hashes(self) -> None:
+        p4 = FakeP4()
+        manifest, _ = apply_single_file(
+            build_plan(self.project_root),
+            only="CH04_S102_WT_001.wav",
+            changelist="123",
+            manifest_path=self.manifest_path,
+            p4=p4,
+            probe=CleanWorkspaceProbe(),
+        )
+        work_unit = next(
+            path for path in p4.original_files if path.suffix.casefold() == ".wwu"
+        )
+        p4.original_files[work_unit] = b"different restored bytes"
+
+        result = rollback_manifest(
+            manifest, p4=p4, manifest_path=self.manifest_path
+        )
+
+        issue = next(
+            issue for issue in result.issues if issue.code == "rollback-wwu-mismatch"
+        )
+        self.assertIn("expected=", issue.message)
+        self.assertIn("actual=", issue.message)
 
     def test_only_must_select_exactly_one_move_candidate(self) -> None:
         with self.assertRaisesRegex(ApplyError, "found 0"):

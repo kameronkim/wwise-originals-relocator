@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="Wwise Originals Relocator portable desktop interface">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="styles.css?v=10">
+  <link rel="stylesheet" href="styles.css?v=11">
   <title>Wwise Originals Relocator</title>
 </head>
 <body>
@@ -189,9 +189,29 @@
             <p>환경 확인을 통과하면 이동 계획을 만들 수 있습니다.</p>
           </div>
 
+          <div id="plan-bulk-actions" class="plan-bulk-actions" hidden>
+            <label class="bulk-select-control" for="select-all-plan">
+              <input id="select-all-plan" type="checkbox">
+              <span>이동 가능 전체 선택</span>
+            </label>
+            <div class="plan-selection-summary" aria-live="polite">
+              <strong id="plan-selected-count">0개 선택</strong>
+              <span id="plan-selectable-count">0개 이동 가능</span>
+            </div>
+            <button id="clear-plan-selection" class="text-button" type="button" disabled>선택 해제</button>
+          </div>
+
           <div id="plan-table-wrap" class="table-wrap" hidden>
-            <table>
-              <thead><tr><th>선택</th><th>파일</th><th>현재 위치</th><th>이동할 위치</th><th>상태</th><th>확인 내용</th></tr></thead>
+            <table class="plan-table">
+              <colgroup>
+                <col class="selection-column">
+                <col class="file-column">
+                <col class="path-column">
+                <col class="path-column">
+                <col class="status-column">
+                <col class="reason-column">
+              </colgroup>
+              <thead><tr><th>선택</th><th>파일</th><th>현재 폴더</th><th>이동할 폴더</th><th>상태</th><th>확인 내용</th></tr></thead>
               <tbody id="plan-table-body"></tbody>
             </table>
           </div>
@@ -283,6 +303,6 @@
       <span id="app-version">v—</span>
     </footer>
   </div>
-  <script src="app.js?v=11"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>

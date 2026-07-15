@@ -11,7 +11,8 @@ const state = {
 
 const operationStatusLabels = {
   prepared: '적용 준비 중',
-  applied: '반영 확인 필요',
+  'awaiting-wwise-reload': 'Wwise Reload 대기',
+  applied: 'P4V 인계 가능',
   'handed-off': 'P4V 마감 대기',
   completed: '완료',
   'rolled-back': 'Rollback 완료',
@@ -93,8 +94,11 @@ const validationMessages = {
   'p4-edit-missing': 'Perforce에 Work Unit edit가 보이지 않습니다.',
   'p4-diff-failed': 'Perforce Work Unit diff를 읽지 못했습니다.',
   'unsafe-p4-diff': 'Work Unit diff가 source 경로 변경만으로 제한되지 않았습니다.',
+  'work-unit-local-changes': 'Work Unit에 이 작업 이전의 로컬 변경이 있습니다. P4V에서 변경을 먼저 정리하세요.',
+  'rollback-exception': 'Rollback 실행이 예기치 않게 중단되었습니다. 보고서와 로그를 확인하세요.',
   'wwise-response-invalid': 'Wwise가 올바른 응답을 반환하지 않았습니다.',
   'wwise-object-missing': 'Wwise에서 적용 대상 객체 하나를 찾지 못했습니다.',
+  'wwise-object-ambiguous': 'Wwise에서 적용 대상 객체 정보가 중복으로 반환되었습니다.',
   'wwise-object-invalid': 'Wwise가 올바르지 않은 객체 정보를 반환했습니다.',
   'wwise-guid-changed': 'Wwise 객체 GUID가 적용 manifest와 다릅니다.',
   'wwise-path-changed': 'Wwise 객체 경로가 적용 manifest와 다릅니다.',
@@ -290,8 +294,12 @@ function waapiReadinessMessage(result, check) {
 }
 
 function renderPlan(result) {
+  const renderStarted = window.performance.now();
   state.plan = result;
   state.selectedItems = [];
+  if (result.objectRoot && element('object-root').value !== result.objectRoot) {
+    element('object-root').value = result.objectRoot;
+  }
   const counts = result.counts || {};
   element('move-count').textContent = counts['move-and-patch'] || 0;
   element('skip-count').textContent = counts.skip || 0;
@@ -307,44 +315,60 @@ function renderPlan(result) {
   body.replaceChildren();
   for (const item of result.items || []) {
     const row = document.createElement('tr');
+    row.dataset.planItemKey = planItemKey(item);
     row.append(
       selectionCell(item, result),
       tableCell(item.sourceFileName || item.objectPath, 'file-name'),
-      tableCell(item.from || '—', 'path-text'),
-      tableCell(item.to || '—', 'path-text'),
+      planPathCell(item.from || '—', item.sourceFileName),
+      planPathCell(item.to || '—', item.sourceFileName),
       actionCell(item.action),
       tableCell(item.reason || '—', 'reason-text'),
     );
     body.append(row);
   }
+  element('plan-bulk-actions').hidden = false;
   element('plan-table-wrap').hidden = false;
   renderValidationIssues(result.validation?.issues || []);
   renderApplySelection();
   setStep('plan', 'done');
   if (result.reports?.planMarkdown) {
     const report = element('plan-report');
-    report.textContent = `계획 보고서: ${result.reports.planMarkdown}`;
+    const reportLabel = `계획 보고서: ${result.reports.planMarkdown}`;
+    report.textContent = reportLabel;
     report.hidden = false;
+    window.requestAnimationFrame(() => {
+      const uiRenderMs = window.performance.now() - renderStarted;
+      const timings = result.performance?.durationsMs;
+      const p4 = result.performance?.perforce;
+      if (!timings || !p4) return;
+      report.textContent = `${reportLabel} · WAAPI ${formatMilliseconds(timings.waapiScan)} · Perforce ${formatMilliseconds(p4.elapsedMs)} (${p4.commandCount || 0}회) · 표 ${formatMilliseconds(uiRenderMs)}`;
+    });
   }
+}
+
+function formatMilliseconds(value) {
+  const milliseconds = Number(value);
+  if (!Number.isFinite(milliseconds)) return '—';
+  if (milliseconds >= 1000) return `${(milliseconds / 1000).toFixed(1)}초`;
+  return `${Math.max(0, Math.round(milliseconds))}ms`;
 }
 
 function selectionCell(item, result) {
   const cell = document.createElement('td');
-  const selectable = item.action === 'move-and-patch'
-    && result.validation?.valid
-    && !result.offlineTestMode
-    && !state.activeOperation;
+  const selectable = isSelectablePlanItem(item, result);
   const checkbox = document.createElement('input');
   checkbox.type = 'checkbox';
   checkbox.className = 'row-selector';
+  checkbox.dataset.planItemKey = planItemKey(item);
   checkbox.disabled = !selectable;
   checkbox.setAttribute('aria-label', `${item.sourceFileName || item.objectPath} 선택`);
   checkbox.addEventListener('change', () => {
     if (checkbox.checked) {
-      state.selectedItems.push(item);
+      const selectedKeys = new Set(state.selectedItems.map(planItemKey));
+      if (!selectedKeys.has(planItemKey(item))) state.selectedItems.push(item);
     } else {
       state.selectedItems = state.selectedItems.filter(
-        (selected) => selected.sourceFileName !== item.sourceFileName,
+        (selected) => planItemKey(selected) !== planItemKey(item),
       );
     }
     renderApplySelection();
@@ -353,7 +377,55 @@ function selectionCell(item, result) {
   return cell;
 }
 
+function planItemKey(item) {
+  return [item.objectPath || '', item.sourceFileName || '', item.from || '', item.to || ''].join('\u0000');
+}
+
+function isSelectablePlanItem(item, result = state.plan) {
+  return Boolean(item
+    && item.action === 'move-and-patch'
+    && result?.validation?.valid
+    && !result.offlineTestMode
+    && !state.activeOperation);
+}
+
+function movablePlanItems() {
+  return (state.plan?.items || []).filter((item) => item.action === 'move-and-patch');
+}
+
+function selectablePlanItems() {
+  return movablePlanItems().filter((item) => isSelectablePlanItem(item));
+}
+
+function setAllPlanItemsSelected(selected) {
+  state.selectedItems = selected ? selectablePlanItems() : [];
+  renderApplySelection();
+}
+
+function syncPlanSelectionControls() {
+  const selectable = selectablePlanItems();
+  const selectableKeys = new Set(selectable.map(planItemKey));
+  state.selectedItems = state.selectedItems.filter((item) => selectableKeys.has(planItemKey(item)));
+  const selectedKeys = new Set(state.selectedItems.map(planItemKey));
+
+  document.querySelectorAll('.row-selector').forEach((checkbox) => {
+    const checked = selectedKeys.has(checkbox.dataset.planItemKey);
+    checkbox.disabled = !selectableKeys.has(checkbox.dataset.planItemKey);
+    checkbox.checked = checked;
+    checkbox.closest('tr')?.classList.toggle('selected', checked);
+  });
+
+  const master = element('select-all-plan');
+  master.disabled = selectable.length === 0;
+  master.checked = selectable.length > 0 && selectedKeys.size === selectable.length;
+  master.indeterminate = selectedKeys.size > 0 && selectedKeys.size < selectable.length;
+  element('clear-plan-selection').disabled = selectedKeys.size === 0;
+  element('plan-selected-count').textContent = `${selectedKeys.size}개 선택`;
+  element('plan-selectable-count').textContent = `${movablePlanItems().length}개 이동 가능`;
+}
+
 function renderApplySelection() {
+  syncPlanSelectionControls();
   if (state.activeOperation) {
     renderActiveOperation(state.activeOperation);
     return;
@@ -366,7 +438,11 @@ function renderApplySelection() {
   element('apply-state').textContent = hasSelection ? `${selected.length}개 선택됨` : '계획 필요';
   element('apply-state').className = `panel-state ${hasSelection ? 'ready' : 'neutral'}`;
   if (hasSelection) {
-    element('selected-file').textContent = selected.map((item) => item.sourceFileName).join(', ');
+    const selectedNames = selected.map((item) => item.sourceFileName);
+    element('selected-file').textContent = summarizeFileNames(selectedNames);
+    element('selected-file').title = selectedNames.length <= 10
+      ? selectedNames.join(', ')
+      : `${selectedNames.length}개 파일이 선택되었습니다.`;
     element('selected-move').textContent = selected.length === 1
       ? `${selected[0].from} → ${selected[0].to}`
       : `${selected.length}개 WAV를 같은 changelist에서 이동`;
@@ -384,38 +460,46 @@ function renderActiveOperation(operation) {
   element('apply-empty').hidden = active;
   const validated = operation?.validated === true;
   const handedOff = operation?.status === 'handed-off';
+  const awaitingReload = operation?.status === 'awaiting-wwise-reload';
   element('apply-state').textContent = active
     ? (operation.status === 'failed'
       ? 'Rollback 필요'
-      : (handedOff ? 'P4V 마감 대기' : (validated ? '인계 가능' : '반영 확인 필요')))
+      : (handedOff ? 'P4V 마감 대기' : (awaitingReload ? 'Wwise Reload 대기' : '인계 가능')))
     : '계획 필요';
   element('apply-state').className = `panel-state ${active ? (validated && !handedOff ? 'ready' : 'warning') : 'neutral'}`;
   if (active) {
-    element('active-file').textContent = (
-      operation.sourceFileNames || [operation.sourceFileName]
-    ).join(', ');
-    element('active-move').textContent = `${operation.from} → ${operation.to}`;
+    const operationNames = operation.sourceFileNames || [operation.sourceFileName];
+    element('active-file').textContent = summarizeFileNames(operationNames);
+    element('active-file').title = operationNames.length <= 10
+      ? operationNames.join(', ')
+      : `${operationNames.length}개 파일 작업입니다.`;
+    element('active-move').textContent = operationNames.length === 1
+      ? `${operation.from} → ${operation.to}`
+      : `${operationNames.length}개 WAV를 같은 changelist에서 이동`;
     element('apply-report').textContent = `Rollback manifest: ${operation.manifest}`;
     element('apply-report').hidden = false;
-    element('run-validate-apply').hidden = operation.status !== 'applied';
+    element('run-validate-apply').hidden = !['awaiting-wwise-reload', 'applied'].includes(operation.status);
     element('run-handoff-apply').hidden = operation.status !== 'applied' || !validated;
     element('run-check-handoff').hidden = !handedOff;
     if (handedOff) {
       element('active-guide-1').textContent = 'P4V에서 WAV move와 Work Unit diff를 최종 검토합니다.';
       element('active-guide-2').textContent = '팀 절차에 따라 submit하거나 변경을 revert합니다.';
       element('active-guide-3').textContent = '마감 뒤 P4V 마감 상태 확인을 눌러 작업 잠금을 해제합니다.';
+    } else if (awaitingReload) {
+      element('active-guide-1').textContent = 'Wwise의 External Project Changes 창에서 affected Work Unit의 Reload를 누릅니다.';
+      element('active-guide-2').textContent = 'Reload가 끝난 뒤 Wwise 반영 확인을 눌러 source 경로를 검증합니다.';
+      element('active-guide-3').textContent = '반영 확인 전에는 P4V 인계를 실행할 수 없습니다.';
     } else {
-      element('active-guide-1').textContent = 'Wwise의 External Project Changes 안내에서 affected Work Unit을 다시 불러옵니다.';
-      element('active-guide-2').textContent = 'Wwise 반영 확인으로 source와 Perforce 상태를 검증합니다.';
-      element('active-guide-3').textContent = validated
-        ? 'P4V로 인계하거나 Rollback으로 원래 상태를 복구합니다.'
-        : '검증이 끝나기 전에는 P4V로 인계할 수 없습니다.';
+      element('active-guide-1').textContent = 'Wwise와 Perforce 적용 상태를 확인했습니다.';
+      element('active-guide-2').textContent = 'P4V로 인계하기 전에 파일과 Work Unit diff를 최종 검토합니다.';
+      element('active-guide-3').textContent = 'P4V로 인계하거나 Rollback으로 원래 상태를 복구합니다.';
     }
     setStep('apply', 'active');
   } else {
     element('apply-report').hidden = true;
     element('apply-validation-result').hidden = true;
   }
+  syncPlanSelectionControls();
   updateOfflineModePresentation();
 }
 
@@ -527,7 +611,12 @@ function renderApplyValidation(result) {
   list.hidden = valid;
   panel.hidden = false;
   if (result.reports?.validation) {
-    element('apply-report').textContent = `적용 검증 보고서: ${result.reports.validation}`;
+    const live = result.performance?.liveWwise;
+    const total = result.performance?.durationsMs?.total;
+    const metrics = live
+      ? ` · Wwise ${live.objectCount || 0}개 · WAAPI ${live.requestCount || 0}회 · ${formatMilliseconds(total)}`
+      : '';
+    element('apply-report').textContent = `적용 검증 보고서: ${result.reports.validation}${metrics}`;
     element('apply-report').hidden = false;
   }
 }
@@ -550,8 +639,35 @@ function tableCell(value, className) {
   const span = document.createElement('span');
   span.className = className;
   span.textContent = value;
+  span.title = value;
   cell.append(span);
   return cell;
+}
+
+function planPathCell(value, sourceFileName) {
+  const cell = document.createElement('td');
+  const span = document.createElement('span');
+  span.className = 'path-text';
+  span.textContent = compactPlanLocation(value, sourceFileName);
+  span.title = value;
+  span.setAttribute('aria-label', value);
+  cell.append(span);
+  return cell;
+}
+
+function compactPlanLocation(value, sourceFileName) {
+  if (!value || value === '—') return '—';
+  const parts = value.replaceAll('\\', '/').split('/').filter(Boolean);
+  if (parts.at(-1) === sourceFileName) parts.pop();
+  const voicesIndex = parts.findIndex((part) => part.toLocaleLowerCase() === 'voices');
+  const visibleParts = voicesIndex >= 0 ? parts.slice(voicesIndex + 1) : parts;
+  return visibleParts.join(' / ') || '—';
+}
+
+function summarizeFileNames(names, limit = 3, separator = ', ') {
+  const visibleNames = names.filter(Boolean);
+  if (visibleNames.length <= limit) return visibleNames.join(separator);
+  return `${visibleNames.slice(0, limit).join(separator)} 외 ${visibleNames.length - limit}개`;
 }
 
 function actionCell(action) {
@@ -616,7 +732,7 @@ function updateApplyButtons() {
       || !state.bridgeReady
       || offline
       || !state.activeOperation
-      || state.activeOperation.status !== 'applied';
+      || !['awaiting-wwise-reload', 'applied'].includes(state.activeOperation.status);
   }
   if (handoffButton) {
     handoffButton.disabled = state.busy
@@ -772,7 +888,7 @@ async function runApply() {
   const names = items.map((item) => item.sourceFileName);
   const confirmationToken = names.join('\n');
   const accepted = window.confirm(
-    `${names.join('\n')}\n\n선택한 WAV ${items.length}개를 같은 changelist에서 Perforce move하고 Work Unit 경로를 변경합니다.\n하나라도 실패하면 이미 적용한 항목을 자동으로 복구합니다. 이 프로그램은 submit하지 않습니다. 계속할까요?`,
+    `${summarizeFileNames(names, 5, '\n')}\n\n선택한 WAV ${items.length}개를 같은 changelist에서 Perforce move하고 Work Unit 경로를 변경합니다.\n하나라도 실패하면 이미 적용한 항목을 자동으로 복구합니다. 이 프로그램은 submit하지 않습니다. 계속할까요?`,
   );
   if (!accepted) return;
   clearError();
@@ -803,8 +919,9 @@ async function runApply() {
 async function runRollback() {
   const operation = state.activeOperation;
   if (!operation) return;
+  const operationNames = operation.sourceFileNames || [operation.sourceFileName];
   const accepted = window.confirm(
-    `${operation.sourceFileName}\n\nmanifest에 기록된 WAV와 Work Unit만 원래 상태로 복구합니다. 계속할까요?`,
+    `${summarizeFileNames(operationNames, 5, '\n')}\n\nmanifest에 기록된 WAV ${operationNames.length}개와 Work Unit만 원래 상태로 복구합니다. 계속할까요?`,
   );
   if (!accepted) return;
   clearError();
@@ -819,7 +936,11 @@ async function runRollback() {
       renderActiveOperation(result.activeOperation || operation);
       await refreshOperationHistory({reportErrors: false});
       setBusy(false);
-      showError('Rollback을 완료하지 못했습니다. 보고서와 로그를 확인하세요.');
+      const issues = result.validation?.issues || [];
+      const details = issues.slice(0, 3).map(
+        (issue) => validationMessages[issue.code] || issue.message,
+      ).join(' ');
+      showError(details || 'Rollback을 완료하지 못했습니다. 보고서와 로그를 확인하세요.');
       return;
     }
     renderActiveOperation(null);
@@ -834,7 +955,7 @@ async function runRollback() {
 
 async function runValidateApply() {
   const operation = state.activeOperation;
-  if (!operation || operation.status !== 'applied') return;
+  if (!operation || !['awaiting-wwise-reload', 'applied'].includes(operation.status)) return;
   clearError();
   setBusy(true, `${operation.sourceFileName}의 Wwise 반영 상태를 확인하고 있습니다…`);
   try {
@@ -952,6 +1073,7 @@ function resetResults() {
   element('doctor-report').hidden = true;
   element('plan-summary').hidden = true;
   element('plan-empty').hidden = false;
+  element('plan-bulk-actions').hidden = true;
   element('plan-table-body').replaceChildren();
   element('plan-table-wrap').hidden = true;
   element('validation-issues').hidden = true;
@@ -971,7 +1093,7 @@ function resetResults() {
   planStep?.classList.remove('active', 'done');
 }
 
-function loadPreview() {
+function loadPreview(previewMode = '1') {
   state.bridgeReady = false;
   element('bridge-status').textContent = '브라우저 미리보기';
   element('bridge-status').className = 'connection-badge preview';
@@ -1010,33 +1132,48 @@ function loadPreview() {
     checks: Object.keys(checkLabels).map((name) => ({name, status: 'pass', message: `${checkLabels[name]} 준비가 완료되었습니다.`})),
     reports: {markdown: 'data/reports/readiness.md'},
   });
+  const previewItems = previewMode === 'plan-100'
+    ? buildLargePlanPreview(100)
+    : [
+      {sourceFileName: 'CH04_S102_WT_001.wav', from: 'Originals/Voices/English(US)/Scenario/CH04/CH04_S102_WT_001.wav', to: 'Originals/Voices/English(US)/Script/CH04/CH04_S102_WT_001.wav', action: 'move-and-patch'},
+      {sourceFileName: 'CH04_S103_DI_004.wav', from: 'Originals/Voices/English(US)/Scenario/CH04/CH04_S103_DI_004.wav', to: 'Originals/Voices/English(US)/Dialog/CH04/CH04_S103_DI_004.wav', action: 'move-and-patch'},
+      {sourceFileName: 'CH04_S104_SQ_002.wav', from: 'Originals/Voices/English(US)/Scenario/CH04/CH04_S104_SQ_002.wav', to: 'Originals/Voices/English(US)/Cutscene/CH04/CH04_S104_SQ_002.wav', action: 'move-and-patch'},
+      {sourceFileName: 'CH04_CUT_010.wav', from: 'Originals/Voices/English(US)/Cutscene/CH04/CH04_CUT_010.wav', to: 'Originals/Voices/English(US)/Cutscene/CH04/CH04_CUT_010.wav', action: 'skip'},
+    ];
+  const previewCounts = previewItems.reduce((counts, item) => {
+    counts[item.action] = (counts[item.action] || 0) + 1;
+    return counts;
+  }, {'move-and-patch': 0, skip: 0, 'manual-review': 0});
   renderPlan({
-    counts: {'move-and-patch': 1, skip: 1, 'manual-review': 0},
+    counts: previewCounts,
     validation: {
       valid: true,
       issues: [],
     },
-    items: [
-      {sourceFileName: 'CH04_S102_WT_001.wav', from: 'Scenario/CH04/CH04_S102_WT_001.wav', to: 'Script/CH04/CH04_S102_WT_001.wav', action: 'move-and-patch'},
-      {sourceFileName: 'CH04_CUT_010.wav', from: 'Cutscene/CH04/CH04_CUT_010.wav', to: 'Cutscene/CH04/CH04_CUT_010.wav', action: 'skip'},
-    ],
+    items: previewItems,
+    performance: {
+      durationsMs: {waapiScan: 1840, preflight: 2860},
+      perforce: {commandCount: previewMode === 'plan-100' ? 12 : 3, elapsedMs: 2410, batchSize: 32},
+    },
     reports: {planMarkdown: 'data/reports/plan.md'},
   });
-  renderActiveOperation({
-    sourceFileName: 'CH04_S102_WT_001.wav',
-    from: 'Originals/Voices/English(US)/Scenario/CH04/CH04_S102_WT_001.wav',
-    to: 'Originals/Voices/English(US)/Script/CH04/CH04_S102_WT_001.wav',
-    objectPath: '\\Containers\\Default Work Unit\\VO\\Script\\CH04\\CH04_S102_WT_001',
-    changelist: '123456',
-    status: 'handed-off',
-    validated: false,
-    manifest: 'data/reports/apply/rollback-manifest.json',
-  });
-  renderApplyValidation({
-    valid: true,
-    validation: {valid: true, issues: []},
-    reports: {validation: 'data/reports/validate-apply/apply-validation.md'},
-  });
+  if (!previewMode.startsWith('plan')) {
+    renderActiveOperation({
+      sourceFileName: 'CH04_S102_WT_001.wav',
+      from: 'Originals/Voices/English(US)/Scenario/CH04/CH04_S102_WT_001.wav',
+      to: 'Originals/Voices/English(US)/Script/CH04/CH04_S102_WT_001.wav',
+      objectPath: '\\Containers\\Default Work Unit\\VO\\Script\\CH04\\CH04_S102_WT_001',
+      changelist: '123456',
+      status: 'handed-off',
+      validated: false,
+      manifest: 'data/reports/apply/rollback-manifest.json',
+    });
+    renderApplyValidation({
+      valid: true,
+      validation: {valid: true, issues: []},
+      reports: {validation: 'data/reports/validate-apply/apply-validation.md'},
+    });
+  }
   renderOperationHistory({
     entries: [
       {
@@ -1068,11 +1205,33 @@ function loadPreview() {
   setBusy(false, '브라우저 미리보기');
 }
 
+function buildLargePlanPreview(count) {
+  const targets = [
+    {folder: 'Script', code: 'WT'},
+    {folder: 'Dialog', code: 'DI'},
+    {folder: 'Cutscene', code: 'SQ'},
+    {folder: 'Dynamic', code: 'DY'},
+  ];
+  return Array.from({length: count}, (_, index) => {
+    const target = targets[index % targets.length];
+    const sequence = String(index + 1).padStart(3, '0');
+    const sourceFileName = `CH04_S${sequence}_${target.code}_001.wav`;
+    return {
+      sourceFileName,
+      from: `Originals/Voices/English(US)/Scenario/CH04/${sourceFileName}`,
+      to: `Originals/Voices/English(US)/${target.folder}/CH04/${sourceFileName}`,
+      action: 'move-and-patch',
+    };
+  });
+}
+
 element('choose-project').addEventListener('click', chooseProject);
 element('choose-p4').addEventListener('click', chooseP4);
 element('detect-p4-connection').addEventListener('click', detectP4Connection);
 element('run-doctor').addEventListener('click', runDoctor);
 element('run-plan').addEventListener('click', runPlan);
+element('select-all-plan').addEventListener('change', (event) => setAllPlanItemsSelected(event.target.checked));
+element('clear-plan-selection').addEventListener('click', () => setAllPlanItemsSelected(false));
 element('run-apply').addEventListener('click', runApply);
 element('run-validate-apply').addEventListener('click', runValidateApply);
 element('run-handoff-apply').addEventListener('click', runHandoffApply);
@@ -1083,8 +1242,9 @@ element('project-root').addEventListener('input', updateProjectState);
 element('offline-test-mode').addEventListener('change', changeOfflineMode);
 window.addEventListener('pywebviewready', initialize, {once: true});
 
-if (new URLSearchParams(window.location.search).get('preview') === '1') {
-  loadPreview();
+const previewMode = new URLSearchParams(window.location.search).get('preview');
+if (previewMode) {
+  loadPreview(previewMode);
 } else {
   window.setTimeout(() => {
     if (!state.bridgeReady) {

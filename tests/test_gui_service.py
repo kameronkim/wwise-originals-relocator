@@ -138,7 +138,7 @@ def fake_apply(plan, **values: object):
             for item in selected
         ),
         unmanaged_files_to_delete=(),
-        status="applied",
+        status="awaiting-wwise-reload",
     )
     write_json_document(manifest, values["manifest_path"])
     return manifest, ValidationResult(())
@@ -147,6 +147,10 @@ def fake_apply(plan, **values: object):
 def fake_rollback(manifest, **values: object) -> ValidationResult:
     write_json_document(manifest.with_status("rolled-back"), values["manifest_path"])
     return ValidationResult(())
+
+
+def failed_rollback(*_: object, **__: object) -> ValidationResult:
+    raise OSError("p4 process stopped")
 
 
 def failed_apply_with_recovery_manifest(plan, **values: object):
@@ -491,6 +495,10 @@ class PortableGuiServiceTests(unittest.TestCase):
             applied = service.run_apply(settings, "line.wav", "line.wav")
 
             self.assertTrue(applied["applied"])
+            self.assertEqual(
+                "awaiting-wwise-reload",
+                applied["activeOperation"]["status"],
+            )
             self.assertEqual("123456", applied["activeOperation"]["changelist"])
             self.assertTrue(Path(applied["reports"]["manifest"]).is_file())
             recovered = service.initial_state()["activeOperation"]
@@ -572,12 +580,17 @@ class PortableGuiServiceTests(unittest.TestCase):
             result = service.run_validate_apply(settings)
 
             self.assertTrue(result["valid"])
+            self.assertEqual("validate-apply", result["performance"]["operation"])
+            self.assertEqual(1, result["performance"]["liveWwise"]["objectCount"])
+            self.assertEqual(1, result["performance"]["liveWwise"]["requestCount"])
+            self.assertEqual("applied", result["activeOperation"]["status"])
             self.assertTrue(result["activeOperation"]["validated"])
             self.assertEqual(
                 [("local", p4), ("live", "http://127.0.0.1:8090/waapi")],
                 calls,
             )
             self.assertTrue(Path(result["reports"]["validation"]).is_file())
+            self.assertTrue(Path(result["reports"]["performance"]).is_file())
             self.assertTrue(Path(result["reports"]["verification"]).is_file())
             self.assertTrue(service.initial_state()["activeOperation"]["validated"])
 
@@ -754,6 +767,37 @@ class PortableGuiServiceTests(unittest.TestCase):
             self.assertFalse(result["applied"])
             self.assertEqual("failed", result["activeOperation"]["status"])
             self.assertIn("Rollback을 다시 실행", result["errorMessage"])
+            self.assertTrue(Path(result["reports"]["failure"]).is_file())
+            self.assertIn(
+                "automatic rollback failed",
+                Path(result["reports"]["failure"]).read_text(encoding="utf-8"),
+            )
+
+    def test_rollback_exception_still_writes_a_validation_report(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(
+                root / "data",
+                applier=fake_apply,
+                rollbacker=failed_rollback,
+                p4_client_factory=lambda *_: object(),
+                workspace_probe_factory=lambda *_: object(),
+            )
+            settings = self.settings(project_root)
+            service.run_plan(settings)
+            service.run_apply(settings, "line.wav", "line.wav")
+
+            result = service.run_rollback(settings, "line.wav")
+
+            self.assertFalse(result["rolledBack"])
+            self.assertEqual(
+                "rollback-exception",
+                result["validation"]["issues"][0]["code"],
+            )
+            self.assertTrue(Path(result["reports"]["validation"]).is_file())
+            self.assertEqual("failed", result["activeOperation"]["status"])
 
     def test_doctor_writes_portable_reports(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -785,6 +829,40 @@ class PortableGuiServiceTests(unittest.TestCase):
             self.assertTrue(
                 all(Path(path).is_file() for path in result["reports"].values())
             )
+            self.assertEqual("plan", result["performance"]["operation"])
+            self.assertEqual(1, result["performance"]["itemCount"])
+            self.assertIn("waapiScan", result["performance"]["durationsMs"])
+            self.assertIn("preflight", result["performance"]["durationsMs"])
+            self.assertTrue(
+                Path(result["reports"]["performance"]).is_file()
+            )
+
+    def test_plan_persists_an_automatically_discovered_object_root(self) -> None:
+        detected_root = r"\Containers\Default Work Unit\VO\Temp_VO"
+
+        def detected_scan(**values: object) -> ScanResult:
+            return ScanResult(
+                project_root=Path(str(values["project_root"])),
+                object_root=detected_root,
+                chapter=str(values["chapter"]),
+                items=scan(**values).items,
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(
+                root / "data",
+                scanner=detected_scan,
+            )
+            settings = self.settings(project_root)
+            settings["objectRoot"] = r"\Containers\Default Work Unit\VO"
+
+            result = service.run_plan(settings)
+
+            self.assertEqual(detected_root, result["objectRoot"])
+            self.assertEqual(detected_root, service.store.load()["objectRoot"])
 
     def test_plan_uses_and_persists_an_automatically_detected_http_endpoint(
         self,

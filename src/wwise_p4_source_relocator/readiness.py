@@ -13,6 +13,7 @@ from .p4_client import (
     P4ConnectionInfo,
     p4_result_has_error,
     query_p4_connection,
+    run_p4_process,
 )
 from .waapi_transport import (
     WaapiDetection,
@@ -306,16 +307,13 @@ def _p4_contains_project(
     project_file = next(project_root.glob("*.wproj"), project_root)
     effective_connection = connection or P4Connection()
     try:
-        result = subprocess.run(
+        result = run_p4_process(
             (
                 executable,
                 *effective_connection.global_options(),
                 "where",
                 str(project_file),
-            ),
-            capture_output=True,
-            text=True,
-            check=False,
+            )
         )
     except OSError:
         return False
