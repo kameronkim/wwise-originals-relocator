@@ -35,6 +35,26 @@ class PortablePackageTests(unittest.TestCase):
         self.assertIn("      - main", workflow)
         self.assertIn('      - "src/**"', workflow)
 
+    def test_portable_workflow_audits_the_dependencies_it_builds(self) -> None:
+        workflow = (
+            REPO_ROOT / ".github" / "workflows" / "portable.yml"
+        ).read_text(encoding="utf-8")
+
+        install = 'python -m pip install ".[dev,portable]"'
+        audit = "python -m pip_audit --local --skip-editable"
+        self.assertIn(install, workflow)
+        self.assertIn(audit, workflow)
+        self.assertLess(workflow.index(install), workflow.index(audit))
+        self.assertIn(
+            "python -m bandit -r src packaging scripts -q -ll",
+            workflow,
+        )
+        self.assertNotIn(" -lll", workflow)
+        self.assertIn(
+            "./scripts/build-portable.ps1 -SkipDependencyInstall",
+            workflow,
+        )
+
     def test_canonical_usage_guide_is_gui_focused(self) -> None:
         guide = (REPO_ROOT / "docs" / "usage-guide.html").read_text(
             encoding="utf-8"
