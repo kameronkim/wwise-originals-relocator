@@ -29,6 +29,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  windows-perforce-integration:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test dependencies
+        shell: pwsh
+        run: python -m pip install ".[dev]"
+      - name: Download Perforce 2025.1 test binaries
+        shell: pwsh
+        run: |
+          $PerforceBin = Join-Path $env:RUNNER_TEMP "perforce-bin"
+          New-Item -ItemType Directory -Force -Path $PerforceBin | Out-Null
+          $BaseUri = "https://ftp.perforce.com/perforce/r25.1/bin.ntx64"
+          Invoke-WebRequest "$BaseUri/p4.exe" -OutFile (Join-Path $PerforceBin "p4.exe")
+          Invoke-WebRequest "$BaseUri/p4d.exe" -OutFile (Join-Path $PerforceBin "p4d.exe")
+      - name: Run live Perforce fstat integration
+        shell: pwsh
+        env:
+          WWISE_RELOCATOR_LIVE_P4: "1"
+          WWISE_RELOCATOR_TEST_P4: ${{ runner.temp }}\perforce-bin\p4.exe
+          WWISE_RELOCATOR_TEST_P4D: ${{ runner.temp }}\perforce-bin\p4d.exe
+          WWISE_RELOCATOR_P4_EVIDENCE: ${{ runner.temp }}\perforce-fstat-evidence.json
+        run: python -m pytest -s tests/test_live_p4_server.py
+      - name: Upload Perforce fstat evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: perforce-fstat-windows-evidence
+          path: ${{ runner.temp }}\perforce-fstat-evidence.json
+          if-no-files-found: warn
+          retention-days: 14
+
   windows-portable:
     runs-on: windows-latest
     timeout-minutes: 15

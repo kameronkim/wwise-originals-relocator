@@ -84,6 +84,7 @@ class P4ClientTests(unittest.TestCase):
             ),
             fstat.argv,
         )
+        self.assertTrue(fstat.tagged)
 
     def test_tagged_records_preserve_move_pair_fields(self) -> None:
         records = parse_p4_tagged_records(
@@ -163,6 +164,61 @@ class P4ClientTests(unittest.TestCase):
             result = client.run(client.diff("Default Work Unit.wwu"))
 
         self.assertEqual("opened for edit\n+patched line\n", result.stdout)
+
+    def test_run_requests_and_preserves_explicit_tagged_output(self) -> None:
+        client = P4Client(dry_run=False)
+        completed = subprocess.CompletedProcess(
+            ("p4",),
+            0,
+            stdout=(
+                "... depotFile //depot/source.wav\n"
+                "... action move/delete\n"
+            ),
+            stderr="",
+        )
+
+        with patch("subprocess.run", return_value=completed) as run:
+            result = client.run(client.fstat_opened("source.wav"))
+
+        self.assertEqual(
+            (
+                "p4",
+                "-ztag",
+                "fstat",
+                "-Ro",
+                "-Or",
+                "-T",
+                "depotFile,clientFile,path,action,change,movedFile",
+                "source.wav",
+            ),
+            run.call_args.args[0],
+        )
+        self.assertEqual(
+            (
+                {
+                    "depotFile": "//depot/source.wav",
+                    "action": "move/delete",
+                },
+            ),
+            parse_p4_tagged_records(result.stdout),
+        )
+
+    def test_run_rejects_tagged_error_output_with_zero_exit_code(self) -> None:
+        client = P4Client(dry_run=False)
+        completed = subprocess.CompletedProcess(
+            ("p4",),
+            0,
+            stdout=(
+                "... code error\n"
+                "... severity 3\n"
+                "... data file(s) not opened on this client.\n"
+            ),
+            stderr="",
+        )
+
+        with patch("subprocess.run", return_value=completed):
+            with self.assertRaises(P4CommandError):
+                client.run(client.fstat_opened("source.wav"))
 
     def test_run_uses_timeout_and_windowless_process_options(self) -> None:
         client = P4Client(dry_run=False, timeout=12.0)
