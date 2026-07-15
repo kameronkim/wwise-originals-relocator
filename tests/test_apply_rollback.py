@@ -213,10 +213,13 @@ class ApplyRollbackTests(unittest.TestCase):
         self.assertTrue(p4.manifest_prepared_before_mutation)
         mutation_operations = [call[1] for call in p4.calls[:3]]
         self.assertEqual(["edit", "edit", "move"], mutation_operations)
-        self.assertEqual("applied", manifest.status)
+        self.assertEqual("awaiting-wwise-reload", manifest.status)
         self.assertFalse(source.exists())
         self.assertTrue(target.is_file())
-        self.assertEqual("applied", read_rollback_manifest(self.manifest_path).status)
+        self.assertEqual(
+            "awaiting-wwise-reload",
+            read_rollback_manifest(self.manifest_path).status,
+        )
 
         live = validate_live_wwise_manifest(
             manifest,

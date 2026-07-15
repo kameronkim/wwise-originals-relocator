@@ -11,7 +11,8 @@ const state = {
 
 const operationStatusLabels = {
   prepared: '적용 준비 중',
-  applied: '반영 확인 필요',
+  'awaiting-wwise-reload': 'Wwise Reload 대기',
+  applied: 'P4V 인계 가능',
   'handed-off': 'P4V 마감 대기',
   completed: '완료',
   'rolled-back': 'Rollback 완료',
@@ -437,10 +438,11 @@ function renderActiveOperation(operation) {
   element('apply-empty').hidden = active;
   const validated = operation?.validated === true;
   const handedOff = operation?.status === 'handed-off';
+  const awaitingReload = operation?.status === 'awaiting-wwise-reload';
   element('apply-state').textContent = active
     ? (operation.status === 'failed'
       ? 'Rollback 필요'
-      : (handedOff ? 'P4V 마감 대기' : (validated ? '인계 가능' : '반영 확인 필요')))
+      : (handedOff ? 'P4V 마감 대기' : (awaitingReload ? 'Wwise Reload 대기' : '인계 가능')))
     : '계획 필요';
   element('apply-state').className = `panel-state ${active ? (validated && !handedOff ? 'ready' : 'warning') : 'neutral'}`;
   if (active) {
@@ -454,19 +456,21 @@ function renderActiveOperation(operation) {
       : `${operationNames.length}개 WAV를 같은 changelist에서 이동`;
     element('apply-report').textContent = `Rollback manifest: ${operation.manifest}`;
     element('apply-report').hidden = false;
-    element('run-validate-apply').hidden = operation.status !== 'applied';
+    element('run-validate-apply').hidden = !['awaiting-wwise-reload', 'applied'].includes(operation.status);
     element('run-handoff-apply').hidden = operation.status !== 'applied' || !validated;
     element('run-check-handoff').hidden = !handedOff;
     if (handedOff) {
       element('active-guide-1').textContent = 'P4V에서 WAV move와 Work Unit diff를 최종 검토합니다.';
       element('active-guide-2').textContent = '팀 절차에 따라 submit하거나 변경을 revert합니다.';
       element('active-guide-3').textContent = '마감 뒤 P4V 마감 상태 확인을 눌러 작업 잠금을 해제합니다.';
+    } else if (awaitingReload) {
+      element('active-guide-1').textContent = 'Wwise의 External Project Changes 창에서 affected Work Unit의 Reload를 누릅니다.';
+      element('active-guide-2').textContent = 'Reload가 끝난 뒤 Wwise 반영 확인을 눌러 source 경로를 검증합니다.';
+      element('active-guide-3').textContent = '반영 확인 전에는 P4V 인계를 실행할 수 없습니다.';
     } else {
-      element('active-guide-1').textContent = 'Wwise의 External Project Changes 안내에서 affected Work Unit을 다시 불러옵니다.';
-      element('active-guide-2').textContent = 'Wwise 반영 확인으로 source와 Perforce 상태를 검증합니다.';
-      element('active-guide-3').textContent = validated
-        ? 'P4V로 인계하거나 Rollback으로 원래 상태를 복구합니다.'
-        : '검증이 끝나기 전에는 P4V로 인계할 수 없습니다.';
+      element('active-guide-1').textContent = 'Wwise와 Perforce 적용 상태를 확인했습니다.';
+      element('active-guide-2').textContent = 'P4V로 인계하기 전에 파일과 Work Unit diff를 최종 검토합니다.';
+      element('active-guide-3').textContent = 'P4V로 인계하거나 Rollback으로 원래 상태를 복구합니다.';
     }
     setStep('apply', 'active');
   } else {
@@ -701,7 +705,7 @@ function updateApplyButtons() {
       || !state.bridgeReady
       || offline
       || !state.activeOperation
-      || state.activeOperation.status !== 'applied';
+      || !['awaiting-wwise-reload', 'applied'].includes(state.activeOperation.status);
   }
   if (handoffButton) {
     handoffButton.disabled = state.busy
@@ -920,7 +924,7 @@ async function runRollback() {
 
 async function runValidateApply() {
   const operation = state.activeOperation;
-  if (!operation || operation.status !== 'applied') return;
+  if (!operation || !['awaiting-wwise-reload', 'applied'].includes(operation.status)) return;
   clearError();
   setBusy(true, `${operation.sourceFileName}의 Wwise 반영 상태를 확인하고 있습니다…`);
   try {

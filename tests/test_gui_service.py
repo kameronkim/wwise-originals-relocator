@@ -138,7 +138,7 @@ def fake_apply(plan, **values: object):
             for item in selected
         ),
         unmanaged_files_to_delete=(),
-        status="applied",
+        status="awaiting-wwise-reload",
     )
     write_json_document(manifest, values["manifest_path"])
     return manifest, ValidationResult(())
@@ -491,6 +491,10 @@ class PortableGuiServiceTests(unittest.TestCase):
             applied = service.run_apply(settings, "line.wav", "line.wav")
 
             self.assertTrue(applied["applied"])
+            self.assertEqual(
+                "awaiting-wwise-reload",
+                applied["activeOperation"]["status"],
+            )
             self.assertEqual("123456", applied["activeOperation"]["changelist"])
             self.assertTrue(Path(applied["reports"]["manifest"]).is_file())
             recovered = service.initial_state()["activeOperation"]
@@ -572,6 +576,7 @@ class PortableGuiServiceTests(unittest.TestCase):
             result = service.run_validate_apply(settings)
 
             self.assertTrue(result["valid"])
+            self.assertEqual("applied", result["activeOperation"]["status"])
             self.assertTrue(result["activeOperation"]["validated"])
             self.assertEqual(
                 [("local", p4), ("live", "http://127.0.0.1:8090/waapi")],

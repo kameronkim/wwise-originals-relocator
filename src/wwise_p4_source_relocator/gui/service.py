@@ -518,9 +518,10 @@ class PortableGuiService:
                 "검증 가능한 작업 manifest를 정확히 하나 찾을 수 없습니다."
             )
         manifest_path, manifest = active[0]
-        if manifest.status != "applied":
+        if manifest.status not in {"awaiting-wwise-reload", "applied"}:
             raise GuiServiceError(
-                "적용에 실패한 manifest입니다. 먼저 Rollback을 실행해 주세요."
+                "Wwise 반영을 확인할 수 없는 manifest입니다. 먼저 Rollback을 "
+                "실행해 주세요."
             )
 
         p4 = self._p4_client_factory(
@@ -545,6 +546,10 @@ class PortableGuiService:
         validation_path = report_root / "apply-validation.md"
         validation_path.write_text(render_validation(result), encoding="utf-8")
         verification_path = _verification_path(manifest_path)
+        verified_manifest = manifest
+        if result.is_valid and manifest.status == "awaiting-wwise-reload":
+            verified_manifest = manifest.with_status("applied")
+            write_json_document(verified_manifest, manifest_path)
         if result.is_valid:
             _write_apply_verification(
                 verification_path,
@@ -557,7 +562,7 @@ class PortableGuiService:
             "valid": result.is_valid,
             "validation": result.to_dict(),
             "activeOperation": {
-                **_manifest_summary(manifest_path, manifest),
+                **_manifest_summary(manifest_path, verified_manifest),
                 "validated": result.is_valid,
             },
             "reports": {
@@ -799,7 +804,12 @@ class PortableGuiService:
             except (OSError, ValueError, json.JSONDecodeError):
                 continue
             if (
-                manifest.status in {"applied", "handed-off", "failed"}
+                manifest.status in {
+                    "awaiting-wwise-reload",
+                    "applied",
+                    "handed-off",
+                    "failed",
+                }
                 and len(manifest.moves) >= 1
                 and len(manifest.moves) == len(manifest.patched_files)
                 and len(manifest.moves) == len(manifest.affected_objects)
