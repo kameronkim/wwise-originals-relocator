@@ -70,7 +70,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     apply.add_argument("--plan", required=True, type=Path)
     apply.add_argument("--only", required=True)
-    apply.add_argument("--changelist")
     apply.add_argument("--manifest", required=True, type=Path)
 
     validate_apply = subparsers.add_parser(
@@ -161,7 +160,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             manifest, validation = apply_single_file(
                 plan,
                 only=args.only,
-                changelist=args.changelist,
                 manifest_path=args.manifest,
                 p4=P4Client(dry_run=False),
             )

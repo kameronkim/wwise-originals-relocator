@@ -67,7 +67,6 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "p4User": "",
     "p4Client": "",
     "p4Charset": "",
-    "changelist": "",
     "offlineTestMode": False,
 }
 
@@ -509,12 +508,10 @@ class PortableGuiService:
         report_root = self._new_report_root("apply")
         manifest_path = report_root / "rollback-manifest.json"
         validation_path = report_root / "apply-validation.md"
-        changelist = _changelist_setting(settings)
         try:
             manifest, validation = self._applier(
                 self._planned_plan,
                 only=selected,
-                changelist=changelist,
                 manifest_path=manifest_path,
                 p4=self._p4_client_factory(p4_executable, p4_connection),
                 probe=self._workspace_probe_factory(
@@ -548,6 +545,31 @@ class PortableGuiService:
                         "failure": failure_path.as_posix(),
                     },
                 }
+            if manifest_path.exists():
+                try:
+                    recovered_manifest = read_rollback_manifest(manifest_path)
+                except (OSError, ValueError, TypeError, KeyError):
+                    recovered_manifest = None
+                if (
+                    recovered_manifest is not None
+                    and recovered_manifest.status == "rolled-back"
+                ):
+                    self._clear_planned_state()
+                    return {
+                        "applied": False,
+                        "autoRolledBack": True,
+                        "activeOperation": None,
+                        "errorMessage": (
+                            "파일 적용 검증에 실패했지만 모든 변경을 자동으로 "
+                            "복구했습니다. 작업 기록과 실패 보고서를 확인한 뒤 "
+                            "환경 확인과 이동 계획을 다시 실행해 주세요. "
+                            f"세부 정보: {exc}"
+                        ),
+                        "reports": {
+                            "manifest": manifest_path.as_posix(),
+                            "failure": failure_path.as_posix(),
+                        },
+                    }
             raise GuiServiceError(
                 "파일 적용을 완료하지 못했습니다. 자동 복구 결과를 "
                 f"확인하세요. 세부 정보: {exc}. 실패 보고서: {failure_path}"
@@ -1115,15 +1137,6 @@ def _optional_setting(settings: Mapping[str, object], key: str) -> str | None:
     return normalized or None
 
 
-def _changelist_setting(settings: Mapping[str, object]) -> str | None:
-    changelist = _optional_setting(settings, "changelist")
-    if changelist is not None and not changelist.isdigit():
-        raise GuiServiceError(
-            "Perforce changelist 번호에는 숫자만 입력해 주세요."
-        )
-    return changelist
-
-
 def _plan_settings_signature(settings: Mapping[str, object]) -> tuple[str, ...]:
     connection = _p4_connection(settings)
     return (
@@ -1176,7 +1189,6 @@ def _manifest_summary(
         "to": first["to"] if count == 1 else f"{count}개 대상 경로",
         "objectPath": first["objectPath"] if count == 1 else f"{count}개 Wwise 객체",
         "moves": moves,
-        "changelist": manifest.changelist,
         "status": manifest.status,
         "validated": (
             manifest.status == "applied"

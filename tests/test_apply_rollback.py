@@ -257,7 +257,6 @@ class ApplyRollbackTests(unittest.TestCase):
         manifest, validation = apply_single_file(
             build_plan(self.project_root),
             only="CH04_S102_WT_001.wav",
-            changelist="123",
             manifest_path=self.manifest_path,
             p4=p4,
             probe=CleanWorkspaceProbe(),
@@ -268,16 +267,16 @@ class ApplyRollbackTests(unittest.TestCase):
         self.assertTrue(validation.is_valid)
         self.assertEqual(
             {
-                "changelist": "123",
                 "moves": 1,
                 "workUnits": 1,
-                "files": 3,
+                "moveAdd": 1,
+                "moveDelete": 1,
             },
             {
-                "changelist": validation.details["perforce"]["changelist"],
                 "moves": validation.details["perforce"]["movePairCount"],
                 "workUnits": validation.details["perforce"]["workUnitEditCount"],
-                "files": validation.details["perforce"]["actualFileCount"],
+                "moveAdd": validation.details["perforce"]["moveAddCount"],
+                "moveDelete": validation.details["perforce"]["moveDeleteCount"],
             },
         )
         self.assertTrue(p4.manifest_prepared_before_mutation)
@@ -325,7 +324,6 @@ class ApplyRollbackTests(unittest.TestCase):
         manifest, validation = apply_selected_files(
             plan,
             only=("CH04_S102_WT_001.wav", "CH04_D001_WT_001.wav"),
-            changelist="123",
             manifest_path=self.manifest_path,
             p4=p4,
             probe=CleanWorkspaceProbe(),
@@ -368,13 +366,12 @@ class ApplyRollbackTests(unittest.TestCase):
             ),
         )
 
-    def test_validation_accepts_an_exact_default_changelist(self) -> None:
+    def test_validation_accepts_expected_opened_actions(self) -> None:
         p4 = FakeP4()
 
         _, validation = apply_single_file(
             build_plan(self.project_root),
             only="CH04_S102_WT_001.wav",
-            changelist=None,
             manifest_path=self.manifest_path,
             p4=p4,
             probe=CleanWorkspaceProbe(),
@@ -382,15 +379,16 @@ class ApplyRollbackTests(unittest.TestCase):
 
         perforce = validation.details["perforce"]
         self.assertTrue(validation.is_valid)
-        self.assertEqual("default", perforce["changelist"])
-        self.assertTrue(perforce["isDefault"])
+        self.assertEqual(1, perforce["moveAddCount"])
+        self.assertEqual(1, perforce["moveDeleteCount"])
+        self.assertEqual(1, perforce["movePairCount"])
+        self.assertEqual(1, perforce["workUnitEditCount"])
 
     def test_validation_rejects_a_wrong_perforce_action(self) -> None:
         p4 = FakeP4()
         manifest, _ = apply_single_file(
             build_plan(self.project_root),
             only="CH04_S102_WT_001.wav",
-            changelist="123",
             manifest_path=self.manifest_path,
             p4=p4,
             probe=CleanWorkspaceProbe(),
@@ -407,7 +405,6 @@ class ApplyRollbackTests(unittest.TestCase):
         manifest, _ = apply_single_file(
             build_plan(self.project_root),
             only="CH04_S102_WT_001.wav",
-            changelist="123",
             manifest_path=self.manifest_path,
             p4=p4,
             probe=CleanWorkspaceProbe(),
@@ -419,12 +416,11 @@ class ApplyRollbackTests(unittest.TestCase):
 
         self.assertIn("p4-move-pair-mismatch", self._issue_codes(validation))
 
-    def test_validation_rejects_a_file_in_another_changelist(self) -> None:
+    def test_validation_ignores_changelist_assignment(self) -> None:
         p4 = FakeP4()
         manifest, _ = apply_single_file(
             build_plan(self.project_root),
             only="CH04_S102_WT_001.wav",
-            changelist="123",
             manifest_path=self.manifest_path,
             p4=p4,
             probe=CleanWorkspaceProbe(),
@@ -434,15 +430,13 @@ class ApplyRollbackTests(unittest.TestCase):
 
         validation = validate_applied_manifest(manifest, p4=p4)
 
-        self.assertIn("p4-changelist-mismatch", self._issue_codes(validation))
-        self.assertIn("p4-changelist-missing-files", self._issue_codes(validation))
+        self.assertTrue(validation.is_valid)
 
-    def test_validation_rejects_unrelated_files_in_the_changelist(self) -> None:
+    def test_validation_ignores_unrelated_opened_files(self) -> None:
         p4 = FakeP4()
         manifest, _ = apply_single_file(
             build_plan(self.project_root),
             only="CH04_S102_WT_001.wav",
-            changelist="123",
             manifest_path=self.manifest_path,
             p4=p4,
             probe=CleanWorkspaceProbe(),
@@ -457,10 +451,25 @@ class ApplyRollbackTests(unittest.TestCase):
 
         validation = validate_applied_manifest(manifest, p4=p4)
 
-        self.assertIn("p4-changelist-extra-files", self._issue_codes(validation))
-        self.assertEqual(
-            1, validation.details["perforce"]["unexpectedFileCount"]
+        self.assertTrue(validation.is_valid)
+
+    def test_validation_matches_local_path_when_client_path_uses_alias(self) -> None:
+        p4 = FakeP4()
+        manifest, _ = apply_single_file(
+            build_plan(self.project_root),
+            only="CH04_S102_WT_001.wav",
+            manifest_path=self.manifest_path,
+            p4=p4,
+            probe=CleanWorkspaceProbe(),
         )
+        for record in p4.opened_files.values():
+            local_path = record["clientFile"]
+            record["path"] = local_path
+            record["clientFile"] = "//audio-workspace" + Path(local_path).as_posix()
+
+        validation = validate_applied_manifest(manifest, p4=p4)
+
+        self.assertTrue(validation.is_valid)
 
     @staticmethod
     def _issue_codes(validation) -> set[str]:
@@ -474,7 +483,6 @@ class ApplyRollbackTests(unittest.TestCase):
             apply_selected_files(
                 plan,
                 only=("CH04_S102_WT_001.wav", "CH04_D001_WT_001.wav"),
-                changelist="123",
                 manifest_path=self.manifest_path,
                 p4=p4,
                 probe=CleanWorkspaceProbe(),
@@ -514,7 +522,6 @@ class ApplyRollbackTests(unittest.TestCase):
             apply_selected_files(
                 conflicting,
                 only=("CH04_S102_WT_001.wav", "CH04_D001_WT_001.wav"),
-                changelist="123",
                 manifest_path=self.manifest_path,
                 p4=p4,
                 probe=CleanWorkspaceProbe(),
@@ -531,7 +538,6 @@ class ApplyRollbackTests(unittest.TestCase):
             apply_single_file(
                 plan,
                 only="CH04_S102_WT_001.wav",
-                changelist="123",
                 manifest_path=self.manifest_path,
                 p4=p4,
                 probe=CleanWorkspaceProbe(),
@@ -550,7 +556,6 @@ class ApplyRollbackTests(unittest.TestCase):
         manifest, _ = apply_single_file(
             build_plan(self.project_root),
             only="CH04_S102_WT_001.wav",
-            changelist="123",
             manifest_path=self.manifest_path,
             p4=p4,
             probe=CleanWorkspaceProbe(),
@@ -575,7 +580,6 @@ class ApplyRollbackTests(unittest.TestCase):
             apply_single_file(
                 build_plan(self.project_root),
                 only="different.wav",
-                changelist=None,
                 manifest_path=self.manifest_path,
                 p4=FakeP4(),
                 probe=CleanWorkspaceProbe(),
@@ -587,7 +591,6 @@ class ApplyRollbackTests(unittest.TestCase):
         manifest, _ = apply_single_file(
             build_plan(self.project_root),
             only="CH04_S102_WT_001.wav",
-            changelist="123",
             manifest_path=self.manifest_path,
             p4=p4,
             probe=CleanWorkspaceProbe(),
@@ -620,7 +623,6 @@ class ApplyRollbackTests(unittest.TestCase):
         manifest, _ = apply_single_file(
             build_plan(self.project_root),
             only="CH04_S102_WT_001.wav",
-            changelist="123",
             manifest_path=self.manifest_path,
             p4=p4,
             probe=CleanWorkspaceProbe(),
@@ -658,7 +660,6 @@ class ApplyRollbackTests(unittest.TestCase):
         manifest, _ = apply_single_file(
             build_plan(self.project_root),
             only="CH04_S102_WT_001.wav",
-            changelist="123",
             manifest_path=self.manifest_path,
             p4=p4,
             probe=CleanWorkspaceProbe(),
@@ -685,7 +686,6 @@ class ApplyRollbackTests(unittest.TestCase):
         manifest, _ = apply_single_file(
             build_plan(self.project_root),
             only="CH04_S102_WT_001.wav",
-            changelist="123",
             manifest_path=self.manifest_path,
             p4=p4,
             probe=CleanWorkspaceProbe(),
@@ -706,7 +706,6 @@ class ApplyRollbackTests(unittest.TestCase):
         manifest, _ = apply_single_file(
             build_plan(self.project_root),
             only="CH04_S102_WT_001.wav",
-            changelist="123",
             manifest_path=self.manifest_path,
             p4=p4,
             probe=CleanWorkspaceProbe(),
