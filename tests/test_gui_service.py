@@ -580,6 +580,9 @@ class PortableGuiServiceTests(unittest.TestCase):
             result = service.run_validate_apply(settings)
 
             self.assertTrue(result["valid"])
+            self.assertEqual("validate-apply", result["performance"]["operation"])
+            self.assertEqual(1, result["performance"]["liveWwise"]["objectCount"])
+            self.assertEqual(1, result["performance"]["liveWwise"]["requestCount"])
             self.assertEqual("applied", result["activeOperation"]["status"])
             self.assertTrue(result["activeOperation"]["validated"])
             self.assertEqual(
@@ -587,6 +590,7 @@ class PortableGuiServiceTests(unittest.TestCase):
                 calls,
             )
             self.assertTrue(Path(result["reports"]["validation"]).is_file())
+            self.assertTrue(Path(result["reports"]["performance"]).is_file())
             self.assertTrue(Path(result["reports"]["verification"]).is_file())
             self.assertTrue(service.initial_state()["activeOperation"]["validated"])
 

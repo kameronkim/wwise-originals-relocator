@@ -10,7 +10,7 @@ the result against the filesystem, Perforce, and live Wwise objects.
 ## Download
 
 The current build is the
-[v0.1.0-rc.3 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.3):
+[v0.1.0-rc.4 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.4):
 
 - Windows x64 portable ZIP
 - macOS arm64 portable ZIP
@@ -81,10 +81,11 @@ Mutation, apply, and rollback controls remain disabled in this mode.
 - Wwise External Project Changes must be reloaded manually before live
   validation.
 
-Every relocation plan writes `performance.json` beside its other reports. It
-records WAAPI, planning, preflight, report-writing, and total durations plus the
-number and elapsed time of Perforce CLI calls.
+Every relocation plan and post-apply validation writes `performance.json`
+beside its other reports. Plan reports record WAAPI, planning, preflight,
+report-writing, and Perforce timings. Apply validation reports record local and
+live Wwise validation durations plus the number of batched WAAPI requests.
 
-`v0.1.0-rc.3` remains a pre-release because a real multi-file Wwise and
+`v0.1.0-rc.4` remains a pre-release because a real multi-file Wwise and
 Perforce apply/validate/rollback pilot is still required before final
 `v0.1.0` approval.

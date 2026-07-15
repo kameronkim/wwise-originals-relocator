@@ -98,6 +98,7 @@ const validationMessages = {
   'rollback-exception': 'Rollback 실행이 예기치 않게 중단되었습니다. 보고서와 로그를 확인하세요.',
   'wwise-response-invalid': 'Wwise가 올바른 응답을 반환하지 않았습니다.',
   'wwise-object-missing': 'Wwise에서 적용 대상 객체 하나를 찾지 못했습니다.',
+  'wwise-object-ambiguous': 'Wwise에서 적용 대상 객체 정보가 중복으로 반환되었습니다.',
   'wwise-object-invalid': 'Wwise가 올바르지 않은 객체 정보를 반환했습니다.',
   'wwise-guid-changed': 'Wwise 객체 GUID가 적용 manifest와 다릅니다.',
   'wwise-path-changed': 'Wwise 객체 경로가 적용 manifest와 다릅니다.',
@@ -610,7 +611,12 @@ function renderApplyValidation(result) {
   list.hidden = valid;
   panel.hidden = false;
   if (result.reports?.validation) {
-    element('apply-report').textContent = `적용 검증 보고서: ${result.reports.validation}`;
+    const live = result.performance?.liveWwise;
+    const total = result.performance?.durationsMs?.total;
+    const metrics = live
+      ? ` · Wwise ${live.objectCount || 0}개 · WAAPI ${live.requestCount || 0}회 · ${formatMilliseconds(total)}`
+      : '';
+    element('apply-report').textContent = `적용 검증 보고서: ${result.reports.validation}${metrics}`;
     element('apply-report').hidden = false;
   }
 }

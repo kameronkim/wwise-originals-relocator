@@ -46,6 +46,7 @@ from ..report import (
 )
 from ..rollback import rollback_manifest
 from ..validator import (
+    DEFAULT_LIVE_WWISE_BATCH_SIZE,
     validate_applied_manifest,
     validate_live_wwise_manifest_at_url,
 )
@@ -570,6 +571,7 @@ class PortableGuiService:
         self,
         values: Mapping[str, object],
     ) -> dict[str, object]:
+        operation_started = perf_counter()
         settings = self.store.save(values)
         project_root = _project_root(settings)
         if _offline_test_mode(settings):
@@ -592,7 +594,10 @@ class PortableGuiService:
             _p4_executable(settings),
             _p4_connection(settings),
         )
+        local_started = perf_counter()
         local = self._applied_validator(manifest, p4=p4)
+        local_ms = _elapsed_ms(local_started)
+        live_started = perf_counter()
         try:
             live = self._live_validator(
                 manifest,
@@ -604,10 +609,12 @@ class PortableGuiService:
                 "Changes를 다시 불러오고 열린 설정창을 닫은 뒤 다시 확인해 주세요. "
                 f"세부 정보: {exc}"
             ) from exc
+        live_ms = _elapsed_ms(live_started)
 
         result = ValidationResult(local.issues + live.issues)
         report_root = self._new_report_root("validate-apply")
         validation_path = report_root / "apply-validation.md"
+        performance_path = report_root / "performance.json"
         validation_path.write_text(render_validation(result), encoding="utf-8")
         verification_path = _verification_path(manifest_path)
         verified_manifest = manifest
@@ -622,15 +629,40 @@ class PortableGuiService:
             )
         else:
             verification_path.unlink(missing_ok=True)
+        object_count = len(manifest.affected_objects)
+        request_count = (
+            object_count + DEFAULT_LIVE_WWISE_BATCH_SIZE - 1
+        ) // DEFAULT_LIVE_WWISE_BATCH_SIZE
+        performance = {
+            "schemaVersion": 1,
+            "operation": "validate-apply",
+            "itemCount": object_count,
+            "durationsMs": {
+                "localValidation": local_ms,
+                "liveWwiseValidation": live_ms,
+                "total": _elapsed_ms(operation_started),
+            },
+            "liveWwise": {
+                "objectCount": object_count,
+                "batchSize": DEFAULT_LIVE_WWISE_BATCH_SIZE,
+                "requestCount": request_count,
+            },
+        }
+        performance_path.write_text(
+            json.dumps(performance, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
         return {
             "valid": result.is_valid,
             "validation": result.to_dict(),
+            "performance": performance,
             "activeOperation": {
                 **_manifest_summary(manifest_path, verified_manifest),
                 "validated": result.is_valid,
             },
             "reports": {
                 "validation": validation_path.as_posix(),
+                "performance": performance_path.as_posix(),
                 "verification": (
                     verification_path.as_posix() if result.is_valid else None
                 ),
