@@ -8,6 +8,13 @@ pre-release may document an outstanding live-validation gate.
 
 Target: `v0.1.0`
 
+### Changed
+
+- Standardized release titles as `Wwise Originals Relocator v<version>` and
+  portable archive names as `WwiseOriginalsRelocator-<os>-<arch>.zip`.
+- Made the macOS build script include its detected `arm64` or `x64`
+  architecture in the generated ZIP name.
+
 ### Release gate
 
 - Complete and record one real multi-file Wwise and Perforce
