@@ -11,6 +11,7 @@ import platform
 import shutil
 import subprocess
 import sys
+from time import perf_counter
 
 from .. import __version__
 from ..applier import ApplyError, apply_selected_files
@@ -68,6 +69,10 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "changelist": "",
     "offlineTestMode": False,
 }
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((perf_counter() - started) * 1000, 3)
 
 
 class GuiServiceError(RuntimeError):
@@ -318,6 +323,7 @@ class PortableGuiService:
         }
 
     def run_plan(self, values: Mapping[str, object]) -> dict[str, object]:
+        operation_started = perf_counter()
         self._clear_planned_state()
         settings = self.store.save(values)
         project_root = _project_root(settings)
@@ -326,6 +332,7 @@ class PortableGuiService:
         configured_waapi_url = _required_setting(settings, "waapiUrl")
         waapi_host, waapi_port, waapi_path, waapi_secure = _waapi_endpoint(settings)
         offline_test_mode = _offline_test_mode(settings)
+        readiness_started = perf_counter()
         readiness = self._readiness_inspector(
             project_root,
             p4_executable=p4_executable,
@@ -339,6 +346,7 @@ class PortableGuiService:
             waapi_secure=waapi_secure,
             waapi_url=configured_waapi_url,
         )
+        readiness_ms = _elapsed_ms(readiness_started)
         if offline_test_mode:
             readiness = _mark_perforce_skipped(readiness)
         if not readiness.ready:
@@ -353,6 +361,7 @@ class PortableGuiService:
         chapter = _required_setting(settings, "chapter")
         waapi_url = readiness.waapi_url or configured_waapi_url
         _save_detected_connections(self.store, settings, readiness)
+        scan_started = perf_counter()
         try:
             scan = self._scanner(
                 project_root=project_root,
@@ -365,17 +374,22 @@ class PortableGuiService:
                 "Wwise WAAPI에서 source를 읽지 못했습니다. Wwise에서 프로젝트가 "
                 f"열려 있고 WAAPI가 활성화되어 있는지 확인하세요. 세부 정보: {exc}"
             ) from exc
+        scan_ms = _elapsed_ms(scan_started)
         if scan.object_root != object_root:
             object_root = scan.object_root
             settings = {**settings, "objectRoot": object_root}
             self.store.save(settings)
+        plan_started = perf_counter()
         plan = self._planner(scan)
+        plan_ms = _elapsed_ms(plan_started)
         probe = (
             LocalTestWorkspaceProbe()
             if offline_test_mode
             else self._workspace_probe_factory(p4_executable, p4_connection)
         )
+        validation_started = perf_counter()
         validation = self._plan_validator(plan, probe=probe)
+        validation_ms = _elapsed_ms(validation_started)
         self._planned_plan = plan
         self._planned_validation = validation
         self._planned_settings = _plan_settings_signature(settings)
@@ -385,6 +399,8 @@ class PortableGuiService:
         plan_path = report_root / "plan.json"
         plan_markdown_path = report_root / "plan.md"
         validation_path = report_root / "validation.md"
+        performance_path = report_root / "performance.json"
+        report_started = perf_counter()
         write_json_document(scan, scan_path)
         write_json_document(plan, plan_path)
         plan_markdown_path.write_text(
@@ -393,10 +409,38 @@ class PortableGuiService:
         validation_path.write_text(
             render_validation(validation), encoding="utf-8"
         )
+        report_ms = _elapsed_ms(report_started)
         counts = {
             action: sum(item.action == action for item in plan.items)
             for action in ("move-and-patch", "skip", "manual-review")
         }
+        probe_metrics = getattr(probe, "metrics", None)
+        perforce_metrics = (
+            probe_metrics()
+            if callable(probe_metrics)
+            else {"commandCount": 0, "elapsedMs": 0.0, "batchSize": 0}
+        )
+        performance = {
+            "schemaVersion": 1,
+            "operation": "plan",
+            "itemCount": len(plan.items),
+            "workUnitCount": len(
+                {item.work_unit_path.casefold() for item in plan.items}
+            ),
+            "durationsMs": {
+                "readiness": readiness_ms,
+                "waapiScan": scan_ms,
+                "planBuild": plan_ms,
+                "preflight": validation_ms,
+                "reportWrite": report_ms,
+                "total": _elapsed_ms(operation_started),
+            },
+            "perforce": perforce_metrics,
+        }
+        performance_path.write_text(
+            json.dumps(performance, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
         return {
             "projectRoot": project_root.as_posix(),
             "objectRoot": object_root,
@@ -413,11 +457,13 @@ class PortableGuiService:
             "counts": counts,
             "items": [item.to_dict() for item in plan.items],
             "validation": validation.to_dict(),
+            "performance": performance,
             "reports": {
                 "scan": scan_path.as_posix(),
                 "planJson": plan_path.as_posix(),
                 "planMarkdown": plan_markdown_path.as_posix(),
                 "validation": validation_path.as_posix(),
+                "performance": performance_path.as_posix(),
             },
         }
 

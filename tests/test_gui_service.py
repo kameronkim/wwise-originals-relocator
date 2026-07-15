@@ -825,6 +825,13 @@ class PortableGuiServiceTests(unittest.TestCase):
             self.assertTrue(
                 all(Path(path).is_file() for path in result["reports"].values())
             )
+            self.assertEqual("plan", result["performance"]["operation"])
+            self.assertEqual(1, result["performance"]["itemCount"])
+            self.assertIn("waapiScan", result["performance"]["durationsMs"])
+            self.assertIn("preflight", result["performance"]["durationsMs"])
+            self.assertTrue(
+                Path(result["reports"]["performance"]).is_file()
+            )
 
     def test_plan_persists_an_automatically_discovered_object_root(self) -> None:
         detected_root = r"\Containers\Default Work Unit\VO\Temp_VO"

@@ -293,6 +293,7 @@ function waapiReadinessMessage(result, check) {
 }
 
 function renderPlan(result) {
+  const renderStarted = window.performance.now();
   state.plan = result;
   state.selectedItems = [];
   if (result.objectRoot && element('object-root').value !== result.objectRoot) {
@@ -331,9 +332,24 @@ function renderPlan(result) {
   setStep('plan', 'done');
   if (result.reports?.planMarkdown) {
     const report = element('plan-report');
-    report.textContent = `계획 보고서: ${result.reports.planMarkdown}`;
+    const reportLabel = `계획 보고서: ${result.reports.planMarkdown}`;
+    report.textContent = reportLabel;
     report.hidden = false;
+    window.requestAnimationFrame(() => {
+      const uiRenderMs = window.performance.now() - renderStarted;
+      const timings = result.performance?.durationsMs;
+      const p4 = result.performance?.perforce;
+      if (!timings || !p4) return;
+      report.textContent = `${reportLabel} · WAAPI ${formatMilliseconds(timings.waapiScan)} · Perforce ${formatMilliseconds(p4.elapsedMs)} (${p4.commandCount || 0}회) · 표 ${formatMilliseconds(uiRenderMs)}`;
+    });
   }
+}
+
+function formatMilliseconds(value) {
+  const milliseconds = Number(value);
+  if (!Number.isFinite(milliseconds)) return '—';
+  if (milliseconds >= 1000) return `${(milliseconds / 1000).toFixed(1)}초`;
+  return `${Math.max(0, Math.round(milliseconds))}ms`;
 }
 
 function selectionCell(item, result) {
@@ -1129,6 +1145,10 @@ function loadPreview(previewMode = '1') {
       issues: [],
     },
     items: previewItems,
+    performance: {
+      durationsMs: {waapiScan: 1840, preflight: 2860},
+      perforce: {commandCount: previewMode === 'plan-100' ? 12 : 3, elapsedMs: 2410, batchSize: 32},
+    },
     reports: {planMarkdown: 'data/reports/plan.md'},
   });
   if (!previewMode.startsWith('plan')) {

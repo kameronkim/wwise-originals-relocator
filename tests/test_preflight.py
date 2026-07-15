@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -68,6 +69,137 @@ def plan_with(item: RelocationPlanItem) -> RelocationPlan:
 
 
 class PreflightTests(unittest.TestCase):
+    def test_workspace_probe_prefetches_path_states_in_three_commands(self) -> None:
+        source = Path("/workspace/Originals/Source A.wav")
+        target = Path("/workspace/Originals/Target A.wav")
+        work_unit = Path("/workspace/Actor-Mixer Hierarchy/VO.wwu")
+        depot_paths = {
+            str(source): "//depot/Originals/Source A.wav",
+            str(target): "//depot/Originals/Target A.wav",
+            str(work_unit): "//depot/Actor-Mixer Hierarchy/VO.wwu",
+        }
+
+        def tagged_result(argv: tuple[str, ...], **_: object):
+            if "where" in argv:
+                paths = argv[argv.index("where") + 1 :]
+                output = "".join(
+                    f"... depotFile {depot_paths[path]}\n"
+                    f"... clientFile //client/{Path(path).name}\n"
+                    f"... path {path}\n"
+                    for path in paths
+                )
+            elif "opened" in argv:
+                output = (
+                    f"... depotFile {depot_paths[str(source)]}\n"
+                    "... action edit\n"
+                )
+            else:
+                output = (
+                    f"... depotFile {depot_paths[str(work_unit)]}\n"
+                    "... type text\n"
+                )
+            return subprocess.CompletedProcess(
+                argv, 0, stdout=output, stderr=""
+            )
+
+        probe = P4WorkspaceProbe(executable="p4.exe")
+        with patch("subprocess.run", side_effect=tagged_result) as run:
+            probe.prefetch(
+                workspace_paths=(source, target, work_unit),
+                opened_paths=(source, work_unit),
+                local_change_paths=(work_unit,),
+            )
+
+            self.assertTrue(probe.is_in_workspace(target))
+            self.assertTrue(probe.is_opened(source))
+            self.assertFalse(probe.is_opened(work_unit))
+            self.assertTrue(probe.has_local_changes(work_unit))
+
+        self.assertEqual(3, run.call_count)
+        self.assertEqual(3, probe.metrics()["commandCount"])
+        self.assertTrue(
+            all(
+                "-ztag" in call.args[0]
+                for call in run.call_args_list[:2]
+            )
+        )
+        self.assertNotIn("-ztag", run.call_args_list[2].args[0])
+
+    def test_workspace_prefetch_chunks_large_path_sets(self) -> None:
+        paths = tuple(Path(f"/workspace/source-{index:03}.wav") for index in range(65))
+
+        def where_result(argv: tuple[str, ...], **_: object):
+            requested = argv[argv.index("where") + 1 :]
+            output = "".join(
+                f"... depotFile //depot/{Path(path).name}\n"
+                f"... path {path}\n"
+                for path in requested
+            )
+            return subprocess.CompletedProcess(
+                argv, 0, stdout=output, stderr=""
+            )
+
+        probe = P4WorkspaceProbe(executable="p4.exe")
+        with patch("subprocess.run", side_effect=where_result) as run:
+            probe.prefetch(
+                workspace_paths=paths,
+                opened_paths=(),
+                local_change_paths=(),
+            )
+
+        self.assertEqual(3, run.call_count)
+        self.assertTrue(all(probe.is_in_workspace(path) for path in paths))
+
+    def test_one_hundred_item_plan_uses_twelve_read_only_p4_calls(self) -> None:
+        items = tuple(
+            move_item(
+                object_path=f"{move_item().object_path}_{index:03}",
+                guid=f"{{00000000-0000-0000-0000-{index:012}}}",
+                source_file_name=f"line-{index:03}.wav",
+                from_relative_path=(
+                    "Originals/Voices/English(US)/Scenario/CH04/"
+                    f"line-{index:03}.wav"
+                ),
+                to_relative_path=(
+                    "Originals/Voices/English(US)/Script/CH04/"
+                    f"line-{index:03}.wav"
+                ),
+            )
+            for index in range(100)
+        )
+        plan = RelocationPlan(
+            project_root=FIXTURE_ROOT,
+            object_root=r"\Containers\Default Work Unit\VO\Temp_VO",
+            chapter="CH04",
+            items=items,
+        )
+
+        def batch_result(argv: tuple[str, ...], **_: object):
+            if "where" not in argv:
+                return subprocess.CompletedProcess(
+                    argv, 0, stdout="", stderr=""
+                )
+            requested = argv[argv.index("where") + 1 :]
+            output = "".join(
+                f"... depotFile //depot/{index:03}\n"
+                f"... clientFile //client/{index:03}\n"
+                f"... path {path}\n"
+                for index, path in enumerate(requested)
+            )
+            return subprocess.CompletedProcess(
+                argv, 0, stdout=output, stderr=""
+            )
+
+        probe = P4WorkspaceProbe(executable="p4.exe")
+        with (
+            patch("shutil.which", return_value="C:/Tools/p4.exe"),
+            patch("subprocess.run", side_effect=batch_result) as run,
+        ):
+            validate_relocation_plan(plan, probe=probe)
+
+        self.assertEqual(12, run.call_count)
+        self.assertEqual(12, probe.metrics()["commandCount"])
+
     def test_workspace_probe_uses_selected_p4v_connection(self) -> None:
         project_path = Path("C:/Work/Pilot.wproj")
         probe = P4WorkspaceProbe(
