@@ -10,6 +10,5 @@ build/
 .portable-data/
 portable-dist/
 
-# Generated operator output; keep the directory itself in Git.
-reports/*
-!reports/.gitkeep
+# Generated operator output.
+reports/

@@ -13,6 +13,31 @@ Target: `v0.1.0`
 - Complete and record one real multi-file Wwise and Perforce
   apply/validate/rollback pilot before creating the final `v0.1.0` tag.
 
+## [0.1.0-rc.7] - 2026-07-15
+
+### Fixed
+
+- Run post-apply `p4 fstat` with explicit tagged output so successful
+  `move/add`, `move/delete`, and Work Unit `edit` records are parsed instead of
+  being incorrectly reported as missing and automatically rolled back.
+
+### Changed
+
+- Added a disposable Windows Perforce 2025.1 server test that exercises the
+  production `fstat` command, a real move pair, Work Unit edit, complete Apply
+  transition, and manifest-scoped rollback.
+- Removed temporary standalone Perforce diagnostic scripts and the unused
+  repository-level reports placeholder from the release source.
+
+### Validation status
+
+- 135 automated tests and 8 subtests pass on the release source.
+- The Windows Actions integration creates a real disposable `p4d`, validates
+  three structured opened records, reaches `awaiting-wwise-reload`, and rolls
+  the operation back successfully.
+- A real multi-file Wwise and Perforce pilot remains outstanding; this build is
+  a release candidate and is not the final `v0.1.0` release.
+
 ## [0.1.0-rc.6] - 2026-07-15
 
 ### Changed
