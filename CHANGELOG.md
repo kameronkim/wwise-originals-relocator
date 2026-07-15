@@ -6,7 +6,14 @@ pre-release may document an outstanding live-validation gate.
 
 ## Unreleased
 
-Target: `v0.1.0`
+Target test candidate: `v0.1.0-rc.8`
+
+### Fixed
+
+- Bound blocking WAMP apply validation to 90 seconds so an unresponsive Wwise
+  connection cannot hold the GUI operation lock indefinitely.
+- Bypass environment and system HTTP proxies for same-machine WAAPI requests.
+- Report malformed or out-of-range WAAPI ports as actionable connection errors.
 
 ### Changed
 
@@ -14,12 +21,14 @@ Target: `v0.1.0`
   portable archive names as `WwiseOriginalsRelocator-<os>-<arch>.zip`.
 - Made the macOS build script include its detected `arm64` or `x64`
   architecture in the generated ZIP name.
+- Audit the complete portable dependency set before building the Windows
+  executable and raise the Bandit gate to medium severity and above.
 
 ### Security
 
 - Reject XML entity declarations while reading Wwise Work Units.
 - Restrict WAAPI connections to loopback addresses used by the local Wwise
-  Authoring process.
+  Authoring process and force direct connections that do not use HTTP proxies.
 - Pin GitHub Actions and release tool versions, verify downloaded Perforce test
   binaries by SHA-256, and run dependency plus static security audits in CI.
 

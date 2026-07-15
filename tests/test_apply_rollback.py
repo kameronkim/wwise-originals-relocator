@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -16,11 +17,14 @@ from wwise_p4_source_relocator.models import (
     MoveRecord,
     RelocationPlan,
     RelocationPlanItem,
+    ValidationResult,
 )
 from wwise_p4_source_relocator.p4_client import P4Client, P4Command
 from wwise_p4_source_relocator.report import read_rollback_manifest
 from wwise_p4_source_relocator.rollback import rollback_manifest
 from wwise_p4_source_relocator.validator import (
+    DEFAULT_LIVE_WWISE_TIMEOUT_SECONDS,
+    _run_bounded_live_wamp_validation,
     validate_applied_manifest,
     validate_live_wwise_manifest,
     validate_live_wwise_manifest_at_url,
@@ -30,6 +34,19 @@ from wwise_p4_source_relocator.validator import (
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "sample_project"
 OLD_XML_PATH = r"Originals\Voices\English(US)\Scenario\CH04\CH04_S102_WT_001.wav"
 NEW_XML_PATH = r"Originals\Voices\English(US)\Script\CH04\CH04_S102_WT_001.wav"
+
+
+def stalling_live_validation_worker(*_: object) -> None:
+    time.sleep(5)
+
+
+def successful_live_validation_worker(
+    result_queue: object,
+    *_: object,
+) -> None:
+    result_queue.put(
+        ("ok", ValidationResult((), details={"batchSize": 32}).to_dict())
+    )
 
 
 class CleanWorkspaceProbe:
@@ -651,6 +668,72 @@ class ApplyRollbackTests(unittest.TestCase):
         client.assert_called_once_with(
             "http://127.0.0.1:8090/waapi", timeout=20.0
         )
+
+    def test_live_wamp_validation_uses_the_bounded_worker(self) -> None:
+        p4 = FakeP4()
+        manifest, _ = apply_single_file(
+            build_plan(self.project_root),
+            only="CH04_S102_WT_001.wav",
+            manifest_path=self.manifest_path,
+            p4=p4,
+            probe=CleanWorkspaceProbe(),
+        )
+        expected = ValidationResult(())
+
+        with patch(
+            "wwise_p4_source_relocator.validator."
+            "_run_bounded_live_wamp_validation",
+            return_value=expected,
+        ) as bounded:
+            result = validate_live_wwise_manifest_at_url(
+                manifest,
+                url="ws://127.0.0.1:8080/waapi",
+            )
+
+        self.assertIs(expected, result)
+        bounded.assert_called_once_with(
+            manifest,
+            url="ws://127.0.0.1:8080/waapi",
+            timeout_seconds=DEFAULT_LIVE_WWISE_TIMEOUT_SECONDS,
+        )
+
+    def test_bounded_live_wamp_validation_returns_without_hanging(self) -> None:
+        p4 = FakeP4()
+        manifest, _ = apply_single_file(
+            build_plan(self.project_root),
+            only="CH04_S102_WT_001.wav",
+            manifest_path=self.manifest_path,
+            p4=p4,
+            probe=CleanWorkspaceProbe(),
+        )
+
+        result = _run_bounded_live_wamp_validation(
+            manifest,
+            url="ws://127.0.0.1:8080/waapi",
+            timeout_seconds=5,
+            worker=successful_live_validation_worker,
+        )
+
+        self.assertTrue(result.is_valid)
+        self.assertEqual({"batchSize": 32}, result.details)
+
+    def test_bounded_live_wamp_validation_times_out(self) -> None:
+        p4 = FakeP4()
+        manifest, _ = apply_single_file(
+            build_plan(self.project_root),
+            only="CH04_S102_WT_001.wav",
+            manifest_path=self.manifest_path,
+            p4=p4,
+            probe=CleanWorkspaceProbe(),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            _run_bounded_live_wamp_validation(
+                manifest,
+                url="ws://127.0.0.1:8080/waapi",
+                timeout_seconds=0.1,
+                worker=stalling_live_validation_worker,
+            )
 
     @unittest.skipIf(
         os.name == "nt", "Wine-mapped paths apply to non-Windows hosts"
