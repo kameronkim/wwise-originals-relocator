@@ -10,7 +10,7 @@ the result against the filesystem, Perforce, and live Wwise objects.
 ## Download
 
 The current build is the
-[v0.1.0-rc.4 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.4):
+[v0.1.0-rc.5 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.5):
 
 - Windows x64 portable ZIP
 - macOS arm64 portable ZIP
@@ -93,6 +93,6 @@ A dedicated numbered changelist is strongly recommended. The default
 changelist remains supported only when it contains exactly the files created
 by the current relocation operation.
 
-`v0.1.0-rc.4` remains a pre-release because a real multi-file Wwise and
+`v0.1.0-rc.5` remains a pre-release because a real multi-file Wwise and
 Perforce apply/validate/rollback pilot is still required before final
 `v0.1.0` approval.
