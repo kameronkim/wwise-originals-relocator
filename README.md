@@ -73,10 +73,17 @@ Mutation, apply, and rollback controls remain disabled in this mode.
   automatic mutation.
 - Existing local changes in an affected Work Unit stop the operation before
   the first Perforce mutation.
+- Read-only Perforce mapping and opened-state checks are grouped into bounded
+  batches. Local Work Unit diffs are cached and checked individually, and each
+  WAV move remains individually recorded and recoverable.
 - A selected-file batch is fully preflighted before mutation and reverses
   completed moves if a later item fails.
 - Wwise External Project Changes must be reloaded manually before live
   validation.
+
+Every relocation plan writes `performance.json` beside its other reports. It
+records WAAPI, planning, preflight, report-writing, and total durations plus the
+number and elapsed time of Perforce CLI calls.
 
 `v0.1.0-rc.3` remains a pre-release because a real multi-file Wwise and
 Perforce apply/validate/rollback pilot is still required before final
