@@ -21,6 +21,7 @@ from wwise_p4_source_relocator.p4_client import P4Client, P4Command
 from wwise_p4_source_relocator.report import read_rollback_manifest
 from wwise_p4_source_relocator.rollback import rollback_manifest
 from wwise_p4_source_relocator.validator import (
+    validate_applied_manifest,
     validate_live_wwise_manifest,
     validate_live_wwise_manifest_at_url,
 )
@@ -60,12 +61,15 @@ class FakeP4(P4Client):
         self.move_count = 0
         self.manifest_prepared_before_mutation = False
         self.original_files: dict[Path, bytes] = {}
+        self.opened_files: dict[Path, dict[str, str]] = {}
         self.calls: list[tuple[str, ...]] = []
 
     def run(self, command: P4Command) -> subprocess.CompletedProcess[str]:
         self.calls.append(command.argv)
         operation = command.argv[1]
-        args = self._file_args(command.argv[2:])
+        command_args = command.argv[2:]
+        changelist = self._changelist(command_args)
+        args = self._file_args(command_args)
         stdout = ""
         if operation == "edit":
             if self.required_manifest_path is not None:
@@ -75,6 +79,12 @@ class FakeP4(P4Client):
                 )
             path = Path(args[-1])
             self.original_files.setdefault(path, path.read_bytes())
+            self.opened_files[path] = {
+                "depotFile": self._depot_path(path),
+                "clientFile": str(path),
+                "action": "edit",
+                "change": changelist,
+            }
         elif operation == "move":
             self.move_count += 1
             if self.move_count == self.fail_move_number:
@@ -82,21 +92,47 @@ class FakeP4(P4Client):
             source, target = Path(args[-2]), Path(args[-1])
             target.parent.mkdir(parents=True, exist_ok=True)
             source.rename(target)
-        elif operation == "opened":
-            wav_paths = [Path(arg) for arg in args if arg.endswith(".wav")]
-            work_units = [Path(arg) for arg in args if arg.endswith(".wwu")]
-            lines = []
-            for source, target in zip(wav_paths[::2], wav_paths[1::2]):
-                lines.extend(
-                    (
-                        f"//depot/{source.name}#1 - move/delete change 123 (binary)",
-                        f"//depot/{target.name}#1 - move/add change 123 (binary)",
-                    )
-                )
-            lines.extend(
-                f"//depot/{path.name}#1 - edit change 123 (text)"
-                for path in work_units
+            source_depot = self._depot_path(source)
+            target_depot = self._depot_path(target)
+            self.opened_files[source] = {
+                "depotFile": source_depot,
+                "clientFile": str(source),
+                "action": "move/delete",
+                "change": changelist,
+                "movedFile": target_depot,
+            }
+            self.opened_files[target] = {
+                "depotFile": target_depot,
+                "clientFile": str(target),
+                "action": "move/add",
+                "change": changelist,
+                "movedFile": source_depot,
+            }
+        elif operation == "fstat":
+            records = [
+                self.opened_files[Path(value)]
+                for value in self._fstat_paths(command_args)
+                if Path(value) in self.opened_files
+            ]
+            stdout = "\n\n".join(
+                "\n".join(f"... {key} {value}" for key, value in record.items())
+                for record in records
             )
+            if stdout:
+                stdout += "\n"
+        elif operation == "opened":
+            selected_paths = {Path(arg) for arg in args}
+            records = [
+                record
+                for path, record in self.opened_files.items()
+                if record["change"] == changelist
+                and (not selected_paths or path in selected_paths)
+            ]
+            lines = [
+                f"{record['depotFile']}#1 - {record['action']} change "
+                f"{record['change']} (text)"
+                for record in records
+            ]
             stdout = "\n".join(lines) + "\n"
         elif operation == "diff":
             extra = "-    <Property Name=\"Volume\"/>\n" if self.unsafe_diff else ""
@@ -124,6 +160,7 @@ class FakeP4(P4Client):
             for path in paths:
                 if path in self.original_files:
                     path.write_bytes(self.original_files[path])
+                self.opened_files.pop(path, None)
         return subprocess.CompletedProcess(command.argv, 0, stdout=stdout, stderr="")
 
     @staticmethod
@@ -134,6 +171,22 @@ class FakeP4(P4Client):
         if values[:1] == ["-c"]:
             values = values[2:]
         return values
+
+    @staticmethod
+    def _changelist(args: tuple[str, ...]) -> str:
+        values = list(args)
+        if "-c" in values:
+            return values[values.index("-c") + 1]
+        return "default"
+
+    @staticmethod
+    def _fstat_paths(args: tuple[str, ...]) -> list[str]:
+        values = list(args)
+        return values[values.index("-T") + 2 :]
+
+    @staticmethod
+    def _depot_path(path: Path) -> str:
+        return f"//depot{path.as_posix()}"
 
 
 class FakeWaapiConnection:
@@ -211,8 +264,22 @@ class ApplyRollbackTests(unittest.TestCase):
         )
 
         source = self.project_root / manifest.moves[0].from_relative_path
-        target = self.project_root / manifest.moves[0].to_relative_path
+        target = manifest.project_root / manifest.moves[0].to_relative_path
         self.assertTrue(validation.is_valid)
+        self.assertEqual(
+            {
+                "changelist": "123",
+                "moves": 1,
+                "workUnits": 1,
+                "files": 3,
+            },
+            {
+                "changelist": validation.details["perforce"]["changelist"],
+                "moves": validation.details["perforce"]["movePairCount"],
+                "workUnits": validation.details["perforce"]["workUnitEditCount"],
+                "files": validation.details["perforce"]["actualFileCount"],
+            },
+        )
         self.assertTrue(p4.manifest_prepared_before_mutation)
         mutation_operations = [call[1] for call in p4.calls[:3]]
         self.assertEqual(["edit", "edit", "move"], mutation_operations)
@@ -300,6 +367,104 @@ class ApplyRollbackTests(unittest.TestCase):
                 ]
             ),
         )
+
+    def test_validation_accepts_an_exact_default_changelist(self) -> None:
+        p4 = FakeP4()
+
+        _, validation = apply_single_file(
+            build_plan(self.project_root),
+            only="CH04_S102_WT_001.wav",
+            changelist=None,
+            manifest_path=self.manifest_path,
+            p4=p4,
+            probe=CleanWorkspaceProbe(),
+        )
+
+        perforce = validation.details["perforce"]
+        self.assertTrue(validation.is_valid)
+        self.assertEqual("default", perforce["changelist"])
+        self.assertTrue(perforce["isDefault"])
+
+    def test_validation_rejects_a_wrong_perforce_action(self) -> None:
+        p4 = FakeP4()
+        manifest, _ = apply_single_file(
+            build_plan(self.project_root),
+            only="CH04_S102_WT_001.wav",
+            changelist="123",
+            manifest_path=self.manifest_path,
+            p4=p4,
+            probe=CleanWorkspaceProbe(),
+        )
+        target = manifest.project_root / manifest.moves[0].to_relative_path
+        p4.opened_files[target]["action"] = "add"
+
+        validation = validate_applied_manifest(manifest, p4=p4)
+
+        self.assertIn("p4-action-mismatch", self._issue_codes(validation))
+
+    def test_validation_rejects_a_broken_move_pair(self) -> None:
+        p4 = FakeP4()
+        manifest, _ = apply_single_file(
+            build_plan(self.project_root),
+            only="CH04_S102_WT_001.wav",
+            changelist="123",
+            manifest_path=self.manifest_path,
+            p4=p4,
+            probe=CleanWorkspaceProbe(),
+        )
+        target = manifest.project_root / manifest.moves[0].to_relative_path
+        p4.opened_files[target]["movedFile"] = "//depot/unrelated.wav"
+
+        validation = validate_applied_manifest(manifest, p4=p4)
+
+        self.assertIn("p4-move-pair-mismatch", self._issue_codes(validation))
+
+    def test_validation_rejects_a_file_in_another_changelist(self) -> None:
+        p4 = FakeP4()
+        manifest, _ = apply_single_file(
+            build_plan(self.project_root),
+            only="CH04_S102_WT_001.wav",
+            changelist="123",
+            manifest_path=self.manifest_path,
+            p4=p4,
+            probe=CleanWorkspaceProbe(),
+        )
+        target = manifest.project_root / manifest.moves[0].to_relative_path
+        p4.opened_files[target]["change"] = "999"
+
+        validation = validate_applied_manifest(manifest, p4=p4)
+
+        self.assertIn("p4-changelist-mismatch", self._issue_codes(validation))
+        self.assertIn("p4-changelist-missing-files", self._issue_codes(validation))
+
+    def test_validation_rejects_unrelated_files_in_the_changelist(self) -> None:
+        p4 = FakeP4()
+        manifest, _ = apply_single_file(
+            build_plan(self.project_root),
+            only="CH04_S102_WT_001.wav",
+            changelist="123",
+            manifest_path=self.manifest_path,
+            p4=p4,
+            probe=CleanWorkspaceProbe(),
+        )
+        unrelated = self.project_root / "unrelated.asset"
+        p4.opened_files[unrelated] = {
+            "depotFile": p4._depot_path(unrelated),
+            "clientFile": str(unrelated),
+            "action": "edit",
+            "change": "123",
+        }
+
+        validation = validate_applied_manifest(manifest, p4=p4)
+
+        self.assertIn("p4-changelist-extra-files", self._issue_codes(validation))
+        self.assertEqual(
+            1, validation.details["perforce"]["unexpectedFileCount"]
+        )
+
+    @staticmethod
+    def _issue_codes(validation) -> set[str]:
+        return {issue.code for issue in validation.issues}
 
     def test_batch_failure_rolls_back_already_moved_files_in_reverse(self) -> None:
         p4 = FakeP4(fail_move_number=2)

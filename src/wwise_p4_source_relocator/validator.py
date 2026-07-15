@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
+import re
 import subprocess
 from typing import Protocol
 from urllib.parse import urlparse
@@ -13,13 +14,14 @@ from .models import (
     ValidationIssue,
     ValidationResult,
 )
-from .p4_client import P4Client
+from .p4_client import P4Client, parse_p4_tagged_records
 from .project_paths import UnsafeProjectPath, resolve_project_path
 from .waapi_transport import HttpWaapiConnection, WaapiCallError
 from .wwise_xml import WwuParseError, source_path_count_for_guid
 
 
 DEFAULT_LIVE_WWISE_BATCH_SIZE = 32
+DEFAULT_P4_VALIDATION_BATCH_SIZE = 32
 
 
 class WaapiConnection(Protocol):
@@ -133,29 +135,14 @@ def validate_applied_manifest(
                 )
             )
 
-    absolute_paths = [path for move in resolved_moves for path in move]
-    absolute_paths.extend(resolved_work_units.values())
-    try:
-        opened = p4.run(p4.opened(*absolute_paths)).stdout.casefold()
-    except (OSError, subprocess.CalledProcessError) as exc:
-        issues.append(ValidationIssue("p4-opened-failed", str(exc)))
-    else:
-        if (
-            opened.count("move/add") < len(manifest.moves)
-            or opened.count("move/delete") < len(manifest.moves)
-        ):
-            issues.append(
-                ValidationIssue(
-                    "p4-move-missing",
-                    "p4 opened does not show both move/add and move/delete",
-                )
-            )
-        if opened.count(" edit ") < len(resolved_work_units):
-            issues.append(
-                ValidationIssue(
-                    "p4-edit-missing", "p4 opened does not show the Work Unit as edit"
-                )
-            )
+    perforce_issue_start = len(issues)
+    perforce_issues, perforce_summary = _validate_perforce_changelist(
+        manifest,
+        resolved_moves=resolved_moves,
+        resolved_work_units=tuple(resolved_work_units.values()),
+        p4=p4,
+    )
+    issues.extend(perforce_issues)
 
     for relative_path, work_unit in resolved_work_units.items():
         try:
@@ -176,7 +163,182 @@ def validate_applied_manifest(
                 )
             )
 
-    return ValidationResult(tuple(issues))
+    perforce_summary["valid"] = len(issues) == perforce_issue_start
+    return ValidationResult(
+        tuple(issues),
+        details={"perforce": perforce_summary},
+    )
+
+
+def _validate_perforce_changelist(
+    manifest: RollbackManifest,
+    *,
+    resolved_moves: tuple[tuple[Path, Path], ...],
+    resolved_work_units: tuple[Path, ...],
+    p4: P4Client,
+) -> tuple[tuple[ValidationIssue, ...], dict[str, object]]:
+    expected_change = manifest.changelist or "default"
+    expected_actions: dict[str, tuple[Path, str]] = {}
+    for source, target in resolved_moves:
+        expected_actions[_local_path_key(source)] = (source, "move/delete")
+        expected_actions[_local_path_key(target)] = (target, "move/add")
+    for work_unit in resolved_work_units:
+        expected_actions[_local_path_key(work_unit)] = (work_unit, "edit")
+
+    issues: list[ValidationIssue] = []
+    records: list[dict[str, str]] = []
+    expected_paths = [value[0] for value in expected_actions.values()]
+    try:
+        for offset in range(0, len(expected_paths), DEFAULT_P4_VALIDATION_BATCH_SIZE):
+            batch = expected_paths[offset : offset + DEFAULT_P4_VALIDATION_BATCH_SIZE]
+            result = p4.run(p4.fstat_opened(*batch))
+            records.extend(parse_p4_tagged_records(result.stdout))
+    except (OSError, subprocess.CalledProcessError) as exc:
+        issues.append(ValidationIssue("p4-opened-failed", str(exc)))
+
+    records_by_local_path: dict[str, list[dict[str, str]]] = {}
+    for record in records:
+        local_path = record.get("clientFile") or record.get("path")
+        if local_path:
+            records_by_local_path.setdefault(_local_path_key(local_path), []).append(
+                record
+            )
+
+    matched_records: dict[str, dict[str, str]] = {}
+    action_counts = {"move/add": 0, "move/delete": 0, "edit": 0}
+    for path_key, (path, expected_action) in expected_actions.items():
+        path_records = records_by_local_path.get(path_key, [])
+        if len(path_records) != 1:
+            qualifier = "not reported" if not path_records else "reported more than once"
+            issues.append(
+                ValidationIssue(
+                    "p4-action-mismatch",
+                    f"Expected {expected_action}, but the path was {qualifier}",
+                    str(path),
+                )
+            )
+            continue
+        record = path_records[0]
+        matched_records[path_key] = record
+        actual_action = record.get("action", "")
+        if actual_action != expected_action:
+            issues.append(
+                ValidationIssue(
+                    "p4-action-mismatch",
+                    f"Expected {expected_action}, but Perforce reports {actual_action or 'no action'}",
+                    str(path),
+                )
+            )
+        else:
+            action_counts[expected_action] += 1
+        actual_change = record.get("change", "default") or "default"
+        if actual_change != expected_change:
+            issues.append(
+                ValidationIssue(
+                    "p4-changelist-mismatch",
+                    f"Expected changelist {expected_change}, but Perforce reports {actual_change}",
+                    str(path),
+                )
+            )
+
+    paired_moves = 0
+    for source, target in resolved_moves:
+        source_record = matched_records.get(_local_path_key(source))
+        target_record = matched_records.get(_local_path_key(target))
+        if source_record is None or target_record is None:
+            continue
+        source_depot = source_record.get("depotFile", "")
+        target_depot = target_record.get("depotFile", "")
+        source_pair = source_record.get("movedFile", "")
+        target_pair = target_record.get("movedFile", "")
+        if (
+            source_depot
+            and target_depot
+            and _depot_path_key(source_pair) == _depot_path_key(target_depot)
+            and _depot_path_key(target_pair) == _depot_path_key(source_depot)
+        ):
+            paired_moves += 1
+        else:
+            issues.append(
+                ValidationIssue(
+                    "p4-move-pair-mismatch",
+                    "Perforce does not link the move/delete and move/add records as one move",
+                    f"{source} -> {target}",
+                )
+            )
+
+    expected_depot_files = {
+        _depot_path_key(record["depotFile"]): record["depotFile"]
+        for record in matched_records.values()
+        if record.get("depotFile")
+    }
+    actual_depot_files: dict[str, str] = {}
+    if not any(issue.code == "p4-opened-failed" for issue in issues):
+        try:
+            opened = p4.run(p4.opened(changelist=expected_change)).stdout
+            actual_depot_files = {
+                _depot_path_key(depot_file): depot_file
+                for depot_file in _opened_depot_files(opened)
+            }
+        except (OSError, subprocess.CalledProcessError) as exc:
+            issues.append(ValidationIssue("p4-opened-failed", str(exc)))
+
+    unexpected_keys = actual_depot_files.keys() - expected_depot_files.keys()
+    missing_keys = expected_depot_files.keys() - actual_depot_files.keys()
+    unexpected_files = sorted(actual_depot_files[key] for key in unexpected_keys)
+    missing_files = sorted(expected_depot_files[key] for key in missing_keys)
+    if unexpected_files:
+        issues.append(
+            ValidationIssue(
+                "p4-changelist-extra-files",
+                "The changelist contains files outside this relocation operation: "
+                + ", ".join(unexpected_files),
+            )
+        )
+    if missing_files:
+        issues.append(
+            ValidationIssue(
+                "p4-changelist-missing-files",
+                "The changelist is missing files from this relocation operation: "
+                + ", ".join(missing_files),
+            )
+        )
+
+    summary: dict[str, object] = {
+        "changelist": expected_change,
+        "isDefault": manifest.changelist is None,
+        "expectedMoveCount": len(resolved_moves),
+        "moveAddCount": action_counts["move/add"],
+        "moveDeleteCount": action_counts["move/delete"],
+        "movePairCount": paired_moves,
+        "expectedWorkUnitCount": len(resolved_work_units),
+        "workUnitEditCount": action_counts["edit"],
+        "expectedFileCount": len(expected_actions),
+        "actualFileCount": len(actual_depot_files),
+        "unexpectedFileCount": len(unexpected_files),
+        "missingFileCount": len(missing_files),
+        "unexpectedFiles": unexpected_files,
+        "missingFiles": missing_files,
+        "valid": False,
+    }
+    return tuple(issues), summary
+
+
+def _opened_depot_files(output: str) -> tuple[str, ...]:
+    depot_files: list[str] = []
+    for line in output.splitlines():
+        match = re.match(r"^(//.+?)#\d+\s+-\s+", line.strip())
+        if match:
+            depot_files.append(match.group(1))
+    return tuple(depot_files)
+
+
+def _local_path_key(path: str | Path) -> str:
+    return os.path.normcase(os.path.abspath(str(path))).casefold()
+
+
+def _depot_path_key(path: str) -> str:
+    return path.replace("\\", "/").casefold()
 
 
 def validate_live_wwise_manifest(

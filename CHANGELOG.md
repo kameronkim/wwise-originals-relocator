@@ -13,6 +13,30 @@ Target: `v0.1.0`
 - Complete and record one real multi-file Wwise and Perforce
   apply/validate/rollback pilot before creating the final `v0.1.0` tag.
 
+## [0.1.0-rc.5] - 2026-07-15
+
+### Added
+
+- Structured post-apply Perforce validation for every expected `move/add`,
+  `move/delete`, and Work Unit `edit` action.
+- Move-pair, changelist-assignment, missing-file, and unexpected-file checks
+  with an inline GUI summary and a detailed validation report.
+
+### Changed
+
+- Recommended a dedicated numbered changelist in the Apply workflow because
+  exact-scope validation rejects unrelated files in the same changelist.
+
+### Validation status
+
+- 131 automated tests and 8 subtests pass.
+- Structured fake-Perforce scenarios cover correct numbered and default
+  changelists, wrong actions, broken move pairs, files in another changelist,
+  and unrelated files in the operation changelist.
+- The macOS arm64 portable build passes its executable smoke check.
+- A real multi-file Wwise and Perforce pilot remains outstanding; this build is
+  a release candidate and is not the final `v0.1.0` release.
+
 ## [0.1.0-rc.4] - 2026-07-15
 
 ### Added

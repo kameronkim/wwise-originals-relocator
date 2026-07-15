@@ -611,7 +611,13 @@ class PortableGuiService:
             ) from exc
         live_ms = _elapsed_ms(live_started)
 
-        result = ValidationResult(local.issues + live.issues)
+        details = dict(local.details or {})
+        if live.details:
+            details["liveWwise"] = live.details
+        result = ValidationResult(
+            local.issues + live.issues,
+            details=details or None,
+        )
         report_root = self._new_report_root("validate-apply")
         validation_path = report_root / "apply-validation.md"
         performance_path = report_root / "performance.json"

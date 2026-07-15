@@ -10,7 +10,7 @@ the result against the filesystem, Perforce, and live Wwise objects.
 ## Download
 
 The current build is the
-[v0.1.0-rc.4 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.4):
+[v0.1.0-rc.5 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.5):
 
 - Windows x64 portable ZIP
 - macOS arm64 portable ZIP
@@ -68,6 +68,9 @@ Mutation, apply, and rollback controls remain disabled in this mode.
 
 - Planning and readiness checks do not modify the project.
 - WAV relocation uses `p4 move`; the application never submits a changelist.
+- Post-apply validation checks every expected `move/add`, `move/delete`, and
+  Work Unit `edit`, verifies each move pair and changelist assignment, and
+  rejects missing or unrelated changelist files.
 - A rollback manifest is saved before the first mutating Perforce command.
 - Shared, ambiguous, missing, conflicting, or out-of-workspace sources stop
   automatic mutation.
@@ -86,6 +89,10 @@ beside its other reports. Plan reports record WAAPI, planning, preflight,
 report-writing, and Perforce timings. Apply validation reports record local and
 live Wwise validation durations plus the number of batched WAAPI requests.
 
-`v0.1.0-rc.4` remains a pre-release because a real multi-file Wwise and
+A dedicated numbered changelist is strongly recommended. The default
+changelist remains supported only when it contains exactly the files created
+by the current relocation operation.
+
+`v0.1.0-rc.5` remains a pre-release because a real multi-file Wwise and
 Perforce apply/validate/rollback pilot is still required before final
 `v0.1.0` approval.

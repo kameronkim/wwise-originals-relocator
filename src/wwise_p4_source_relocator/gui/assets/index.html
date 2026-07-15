@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="Wwise Originals Relocator portable desktop interface">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="styles.css?v=11">
+  <link rel="stylesheet" href="styles.css?v=12">
   <title>Wwise Originals Relocator</title>
 </head>
 <body>
@@ -126,7 +126,7 @@
               </label>
               <label>
                 <span>Perforce changelist 번호</span>
-                <input id="changelist" type="text" inputmode="numeric" placeholder="선택 사항">
+                <input id="changelist" type="text" inputmode="numeric" placeholder="전용 번호 권장">
               </label>
             </div>
           </details>
@@ -245,7 +245,7 @@
             </div>
             <div class="safety-note">
               <strong>적용 전 확인</strong>
-              <span>Wwise 저장을 마치고, P4V에서 올바른 workspace와 changelist를 사용 중인지 확인하세요.</span>
+              <span>Wwise 저장을 마치고, P4V에서 이 작업만 담을 전용 numbered changelist를 준비했는지 확인하세요.</span>
             </div>
             <button id="run-apply" class="primary-button danger-action" type="button" disabled>선택한 파일 모두 적용</button>
           </div>
@@ -271,6 +271,7 @@
           <div id="apply-validation-result" class="apply-validation-result" hidden>
             <strong id="apply-validation-title">적용 결과 확인</strong>
             <p id="apply-validation-summary"></p>
+            <dl id="apply-perforce-summary" class="apply-perforce-summary" hidden></dl>
             <ul id="apply-validation-list"></ul>
           </div>
           <div id="apply-report" class="report-path" hidden></div>
@@ -303,6 +304,6 @@
       <span id="app-version">v—</span>
     </footer>
   </div>
-  <script src="app.js?v=12"></script>
+  <script src="app.js?v=13"></script>
 </body>
 </html>
