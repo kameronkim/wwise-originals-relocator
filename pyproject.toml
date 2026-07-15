@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools==83.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,13 +10,17 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [{ name = "Wwise P4 Source Relocator contributors" }]
-dependencies = []
+dependencies = ["defusedxml==0.7.1"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
-waapi = ["waapi-client"]
-gui = ["pywebview>=6.2,<7", "waapi-client"]
-portable = ["pywebview>=6.2,<7", "waapi-client", "pyinstaller>=6,<7"]
+dev = ["bandit==1.9.4", "pip-audit==2.10.1", "pytest==9.1.1"]
+waapi = ["waapi-client==0.8.1"]
+gui = ["pywebview==6.2.1", "waapi-client==0.8.1"]
+portable = [
+    "pywebview==6.2.1",
+    "waapi-client==0.8.1",
+    "pyinstaller==6.21.0",
+]
 
 [project.scripts]
 wwise-p4-source-relocator = "wwise_p4_source_relocator.cli:main"

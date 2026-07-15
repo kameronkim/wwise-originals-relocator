@@ -15,6 +15,14 @@ Target: `v0.1.0`
 - Made the macOS build script include its detected `arm64` or `x64`
   architecture in the generated ZIP name.
 
+### Security
+
+- Reject XML entity declarations while reading Wwise Work Units.
+- Restrict WAAPI connections to loopback addresses used by the local Wwise
+  Authoring process.
+- Pin GitHub Actions and release tool versions, verify downloaded Perforce test
+  binaries by SHA-256, and run dependency plus static security audits in CI.
+
 ### Release gate
 
 - Complete and record one real multi-file Wwise and Perforce
