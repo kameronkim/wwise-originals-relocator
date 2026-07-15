@@ -4,6 +4,19 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output_root="${1:-portable-dist}"
 
+case "$(uname -m)" in
+    arm64 | aarch64)
+        platform_arch="arm64"
+        ;;
+    x86_64 | amd64)
+        platform_arch="x64"
+        ;;
+    *)
+        echo "Unsupported macOS architecture: $(uname -m)" >&2
+        exit 1
+        ;;
+esac
+
 if [[ -n "${PYTHON:-}" ]]; then
     python_bin="$PYTHON"
 elif [[ -x "$repo_root/.venv/bin/python" ]]; then
@@ -27,7 +40,7 @@ cd "$repo_root"
 "$python_bin" scripts/prepare_portable.py --app-root dist/WwiseOriginalsRelocator
 mkdir -p "$output_root"
 
-archive="$output_root/WwiseOriginalsRelocator-macos.zip"
+archive="$output_root/WwiseOriginalsRelocator-macos-$platform_arch.zip"
 rm -f "$archive"
 (cd dist/WwiseOriginalsRelocator && zip -qr "$repo_root/$archive" .)
 echo "Portable archive: $repo_root/$archive"
