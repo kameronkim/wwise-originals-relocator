@@ -13,6 +13,30 @@ Target: `v0.1.0`
 - Complete and record one real multi-file Wwise and Perforce
   apply/validate/rollback pilot before creating the final `v0.1.0` tag.
 
+## [0.1.0-rc.6] - 2026-07-15
+
+### Changed
+
+- Removed manual numbered changelist setup from the GUI and CLI. Relocations
+  now operate on the selected paths in the current Perforce workspace state.
+- Kept post-apply validation focused on each selected path's action and linked
+  move pair without rejecting unrelated files already open in the workspace.
+
+### Fixed
+
+- Match Windows Perforce records through both client-syntax and local path
+  aliases during post-apply validation.
+- Report successful automatic rollback and refresh operation history after an
+  apply validation failure.
+
+### Validation status
+
+- 133 automated tests and 8 subtests pass.
+- Regression scenarios cover unrelated opened files, legacy saved settings,
+  Windows client/local path aliases, and completed automatic rollback history.
+- A real multi-file Wwise and Perforce pilot remains outstanding; this build is
+  a release candidate and is not the final `v0.1.0` release.
+
 ## [0.1.0-rc.5] - 2026-07-15
 
 ### Added

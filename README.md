@@ -10,7 +10,7 @@ the result against the filesystem, Perforce, and live Wwise objects.
 ## Download
 
 The current build is the
-[v0.1.0-rc.5 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.5):
+[v0.1.0-rc.6 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.6):
 
 - Windows x64 portable ZIP
 - macOS arm64 portable ZIP
@@ -67,10 +67,9 @@ Mutation, apply, and rollback controls remain disabled in this mode.
 ## Safety boundaries
 
 - Planning and readiness checks do not modify the project.
-- WAV relocation uses `p4 move`; the application never submits a changelist.
+- WAV relocation uses `p4 move`; the application never submits Perforce changes.
 - Post-apply validation checks every expected `move/add`, `move/delete`, and
-  Work Unit `edit`, verifies each move pair and changelist assignment, and
-  rejects missing or unrelated changelist files.
+  Work Unit `edit`, and verifies that each source and target form one move pair.
 - A rollback manifest is saved before the first mutating Perforce command.
 - Shared, ambiguous, missing, conflicting, or out-of-workspace sources stop
   automatic mutation.
@@ -89,10 +88,10 @@ beside its other reports. Plan reports record WAAPI, planning, preflight,
 report-writing, and Perforce timings. Apply validation reports record local and
 live Wwise validation durations plus the number of batched WAAPI requests.
 
-A dedicated numbered changelist is strongly recommended. The default
-changelist remains supported only when it contains exactly the files created
-by the current relocation operation.
+The application acts only on the selected WAV files and affected Work Units.
+Existing files already open in the workspace are not included in its validation,
+submission, or rollback scope.
 
-`v0.1.0-rc.5` remains a pre-release because a real multi-file Wwise and
+`v0.1.0-rc.6` remains a pre-release because a real multi-file Wwise and
 Perforce apply/validate/rollback pilot is still required before final
 `v0.1.0` approval.
