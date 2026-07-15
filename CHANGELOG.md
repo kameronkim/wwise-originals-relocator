@@ -13,6 +13,18 @@ Target: `v0.1.0`
 - Complete and record one real multi-file Wwise and Perforce
   apply/validate/rollback pilot before creating the final `v0.1.0` tag.
 
+### Added
+
+- Structured post-apply Perforce validation for every expected `move/add`,
+  `move/delete`, and Work Unit `edit` action.
+- Move-pair, changelist-assignment, missing-file, and unexpected-file checks
+  with an inline GUI summary and a detailed validation report.
+
+### Changed
+
+- Recommended a dedicated numbered changelist in the Apply workflow because
+  exact-scope validation rejects unrelated files in the same changelist.
+
 ## [0.1.0-rc.4] - 2026-07-15
 
 ### Added
