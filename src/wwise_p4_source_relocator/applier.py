@@ -31,7 +31,6 @@ def apply_single_file(
     plan: RelocationPlan,
     *,
     only: str,
-    changelist: str | None,
     manifest_path: str | Path,
     p4: P4Client,
     probe: WorkspaceProbe | None = None,
@@ -39,7 +38,6 @@ def apply_single_file(
     return apply_selected_files(
         plan,
         only=(only,),
-        changelist=changelist,
         manifest_path=manifest_path,
         p4=p4,
         probe=probe,
@@ -50,7 +48,6 @@ def apply_selected_files(
     plan: RelocationPlan,
     *,
     only: Sequence[str],
-    changelist: str | None,
     manifest_path: str | Path,
     p4: P4Client,
     probe: WorkspaceProbe | None = None,
@@ -114,7 +111,7 @@ def apply_selected_files(
     manifest = RollbackManifest(
         created_at=datetime.now(timezone.utc).isoformat(),
         project_root=root,
-        changelist=changelist,
+        changelist=None,
         moves=tuple(
             MoveRecord(item.from_relative_path or "", item.to_relative_path or "")
             for item in items
@@ -138,14 +135,14 @@ def apply_selected_files(
     try:
         for work_unit_path in items_by_work_unit:
             work_unit = resolve_project_path(root, work_unit_path)
-            p4.run(p4.edit(work_unit, changelist=changelist))
+            p4.run(p4.edit(work_unit))
             opened_work_units.add(work_unit_path)
         for item, source, target in item_paths:
-            p4.run(p4.edit(source, changelist=changelist))
+            p4.run(p4.edit(source))
             try:
-                p4.run(p4.move(source, target, changelist=changelist))
+                p4.run(p4.move(source, target))
             except Exception:
-                p4.run(p4.revert(source, changelist=changelist))
+                p4.run(p4.revert(source))
                 raise
             moved_items.append(item)
         for work_unit_path, patch in patches.items():
@@ -165,7 +162,6 @@ def apply_selected_files(
                 p4.run(
                     p4.revert(
                         resolve_project_path(root, work_unit_path),
-                        changelist=changelist,
                     )
                 )
             except Exception as cleanup_exc:

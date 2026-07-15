@@ -124,10 +124,6 @@
                 <span>문자셋 (P4CHARSET)</span>
                 <input id="p4-charset" type="text" placeholder="서버 기본값">
               </label>
-              <label>
-                <span>Perforce changelist 번호</span>
-                <input id="changelist" type="text" inputmode="numeric" placeholder="전용 번호 권장">
-              </label>
             </div>
           </details>
         </section>
@@ -230,7 +226,7 @@
             </div>
             <span id="apply-state" class="panel-state neutral">계획 필요</span>
           </div>
-          <p class="panel-description">선택한 WAV를 같은 changelist에서 <code>p4 move</code>하고 해당 Work Unit의 source 경로만 변경합니다. 하나라도 실패하면 이미 적용한 항목을 역순 복구하며, 이 프로그램은 submit을 실행하지 않습니다.</p>
+          <p class="panel-description">선택한 WAV를 <code>p4 move</code>하고 해당 Work Unit의 source 경로만 변경합니다. 하나라도 실패하면 이미 적용한 항목을 역순 복구하며, 이 프로그램은 submit을 실행하지 않습니다.</p>
 
           <div id="apply-empty" class="empty-state compact-empty">
             <span aria-hidden="true">✓</span>
@@ -245,7 +241,7 @@
             </div>
             <div class="safety-note">
               <strong>적용 전 확인</strong>
-              <span>Wwise 저장을 마치고, P4V에서 이 작업만 담을 전용 numbered changelist를 준비했는지 확인하세요.</span>
+              <span>Wwise 저장을 마치세요. 앱은 선택한 파일의 Perforce 액션과 이동 연결을 적용 직후 검증하고, 실패하면 자동 복구합니다.</span>
             </div>
             <button id="run-apply" class="primary-button danger-action" type="button" disabled>선택한 파일 모두 적용</button>
           </div>
