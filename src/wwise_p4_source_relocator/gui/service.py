@@ -18,6 +18,7 @@ from ..models import (
     RelocationPlan,
     RollbackManifest,
     ScanResult,
+    ValidationIssue,
     ValidationResult,
 )
 from ..p4_client import (
@@ -471,6 +472,13 @@ class PortableGuiService:
                 ),
             )
         except ApplyError as exc:
+            failure_path = report_root / "apply-failure.md"
+            failure_path.write_text(
+                "# Apply Failure\n\n"
+                f"- Error: {exc}\n"
+                f"- Manifest: {manifest_path.as_posix()}\n",
+                encoding="utf-8",
+            )
             recovery = self._active_manifests(project_root)
             if len(recovery) == 1:
                 recovery_path, recovery_manifest = recovery[0]
@@ -484,11 +492,14 @@ class PortableGuiService:
                         "파일 적용과 자동 복구를 완료하지 못했습니다. "
                         f"Rollback을 다시 실행해 주세요. 세부 정보: {exc}"
                     ),
-                    "reports": {"manifest": recovery_path.as_posix()},
+                    "reports": {
+                        "manifest": recovery_path.as_posix(),
+                        "failure": failure_path.as_posix(),
+                    },
                 }
             raise GuiServiceError(
                 "파일 적용을 완료하지 못했습니다. 자동 복구 결과를 "
-                f"확인하세요. 세부 정보: {exc}"
+                f"확인하세요. 세부 정보: {exc}. 실패 보고서: {failure_path}"
             ) from exc
         validation_path.write_text(
             render_validation(validation), encoding="utf-8"
@@ -771,16 +782,28 @@ class PortableGuiService:
                     "실행하지 않고 P4V 마감 상태 확인을 먼저 눌러 주세요."
                 )
 
-        result = self._rollbacker(
-            manifest,
-            p4=self._p4_client_factory(
-                _p4_executable(settings),
-                _p4_connection(settings),
-            ),
-            manifest_path=manifest_path,
-        )
         report_root = self._new_report_root("rollback")
         validation_path = report_root / "rollback-validation.md"
+        try:
+            result = self._rollbacker(
+                manifest,
+                p4=self._p4_client_factory(
+                    _p4_executable(settings),
+                    _p4_connection(settings),
+                ),
+                manifest_path=manifest_path,
+            )
+        except Exception as exc:
+            LOGGER.exception("Rollback stopped unexpectedly")
+            result = ValidationResult(
+                (
+                    ValidationIssue(
+                        "rollback-exception",
+                        f"Rollback stopped unexpectedly: {exc}",
+                    ),
+                )
+            )
+            write_json_document(manifest.with_status("failed"), manifest_path)
         validation_path.write_text(render_validation(result), encoding="utf-8")
         self._clear_planned_state()
         return {

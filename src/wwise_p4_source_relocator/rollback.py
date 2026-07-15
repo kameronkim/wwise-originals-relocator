@@ -121,10 +121,12 @@ def rollback_manifest(
             if record.relative_path == patched.relative_path
         }
         if len(expected_hashes) != 1 or digest not in expected_hashes:
+            expected = ", ".join(sorted(expected_hashes)) or "none"
             issues.append(
                 ValidationIssue(
                     "rollback-wwu-mismatch",
-                    f"Work Unit does not match its original hash: {work_unit}",
+                    "Work Unit does not match its original hash: "
+                    f"{work_unit}; expected={expected}; actual={digest}",
                 )
             )
 

@@ -95,6 +95,7 @@ const validationMessages = {
   'p4-diff-failed': 'Perforce Work Unit diff를 읽지 못했습니다.',
   'unsafe-p4-diff': 'Work Unit diff가 source 경로 변경만으로 제한되지 않았습니다.',
   'work-unit-local-changes': 'Work Unit에 이 작업 이전의 로컬 변경이 있습니다. P4V에서 변경을 먼저 정리하세요.',
+  'rollback-exception': 'Rollback 실행이 예기치 않게 중단되었습니다. 보고서와 로그를 확인하세요.',
   'wwise-response-invalid': 'Wwise가 올바른 응답을 반환하지 않았습니다.',
   'wwise-object-missing': 'Wwise에서 적용 대상 객체 하나를 찾지 못했습니다.',
   'wwise-object-invalid': 'Wwise가 올바르지 않은 객체 정보를 반환했습니다.',
@@ -910,7 +911,11 @@ async function runRollback() {
       renderActiveOperation(result.activeOperation || operation);
       await refreshOperationHistory({reportErrors: false});
       setBusy(false);
-      showError('Rollback을 완료하지 못했습니다. 보고서와 로그를 확인하세요.');
+      const issues = result.validation?.issues || [];
+      const details = issues.slice(0, 3).map(
+        (issue) => validationMessages[issue.code] || issue.message,
+      ).join(' ');
+      showError(details || 'Rollback을 완료하지 못했습니다. 보고서와 로그를 확인하세요.');
       return;
     }
     renderActiveOperation(null);

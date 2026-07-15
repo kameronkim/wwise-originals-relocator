@@ -149,6 +149,10 @@ def fake_rollback(manifest, **values: object) -> ValidationResult:
     return ValidationResult(())
 
 
+def failed_rollback(*_: object, **__: object) -> ValidationResult:
+    raise OSError("p4 process stopped")
+
+
 def failed_apply_with_recovery_manifest(plan, **values: object):
     manifest, _ = fake_apply(plan, **values)
     write_json_document(
@@ -759,6 +763,37 @@ class PortableGuiServiceTests(unittest.TestCase):
             self.assertFalse(result["applied"])
             self.assertEqual("failed", result["activeOperation"]["status"])
             self.assertIn("Rollback을 다시 실행", result["errorMessage"])
+            self.assertTrue(Path(result["reports"]["failure"]).is_file())
+            self.assertIn(
+                "automatic rollback failed",
+                Path(result["reports"]["failure"]).read_text(encoding="utf-8"),
+            )
+
+    def test_rollback_exception_still_writes_a_validation_report(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(
+                root / "data",
+                applier=fake_apply,
+                rollbacker=failed_rollback,
+                p4_client_factory=lambda *_: object(),
+                workspace_probe_factory=lambda *_: object(),
+            )
+            settings = self.settings(project_root)
+            service.run_plan(settings)
+            service.run_apply(settings, "line.wav", "line.wav")
+
+            result = service.run_rollback(settings, "line.wav")
+
+            self.assertFalse(result["rolledBack"])
+            self.assertEqual(
+                "rollback-exception",
+                result["validation"]["issues"][0]["code"],
+            )
+            self.assertTrue(Path(result["reports"]["validation"]).is_file())
+            self.assertEqual("failed", result["activeOperation"]["status"])
 
     def test_doctor_writes_portable_reports(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
