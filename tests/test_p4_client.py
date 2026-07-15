@@ -9,6 +9,7 @@ from wwise_p4_source_relocator.p4_client import (
     P4Connection,
     P4ExecutionDisabled,
     p4_creation_flags,
+    parse_p4_tagged_records,
     query_p4_connection,
 )
 
@@ -62,6 +63,45 @@ class P4ClientTests(unittest.TestCase):
             ("p4", "revert", "-c", "123456", "source.wav", "target.wav"),
             revert.argv,
         )
+
+    def test_opened_and_fstat_build_structured_validation_commands(self) -> None:
+        client = P4Client()
+
+        opened = client.opened(changelist="123456")
+        fstat = client.fstat_opened("source.wav", "target.wav")
+
+        self.assertEqual(("p4", "opened", "-c", "123456"), opened.argv)
+        self.assertEqual(
+            (
+                "p4",
+                "fstat",
+                "-Ro",
+                "-Or",
+                "-T",
+                "depotFile,clientFile,path,action,change,movedFile",
+                "source.wav",
+                "target.wav",
+            ),
+            fstat.argv,
+        )
+
+    def test_tagged_records_preserve_move_pair_fields(self) -> None:
+        records = parse_p4_tagged_records(
+            "... depotFile //depot/source.wav\n"
+            "... clientFile C:/work/source.wav\n"
+            "... action move/delete\n"
+            "... change 123\n"
+            "... movedFile //depot/target.wav\n"
+            "... depotFile //depot/target.wav\n"
+            "... clientFile C:/work/target.wav\n"
+            "... action move/add\n"
+            "... change 123\n"
+            "... movedFile //depot/source.wav\n"
+        )
+
+        self.assertEqual(2, len(records))
+        self.assertEqual("move/delete", records[0]["action"])
+        self.assertEqual("//depot/source.wav", records[1]["movedFile"])
 
     def test_connection_context_is_added_as_global_options(self) -> None:
         client = P4Client(

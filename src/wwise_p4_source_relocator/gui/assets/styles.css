@@ -212,6 +212,11 @@ tbody tr:hover { background: rgba(131, 183, 212, 0.05); }
 .apply-validation-result p { margin: 4px 0 0; font-size: 0.7rem; line-height: 1.45; }
 .apply-validation-result ul { margin: 7px 0 0; padding-left: 1.1rem; font-size: 0.7rem; }
 .apply-validation-result li + li { margin-top: 4px; }
+.apply-perforce-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 12px 0 0; }
+.apply-perforce-summary > div { min-width: 0; padding: 9px 10px; border: 1px solid rgba(148, 190, 218, 0.22); border-radius: 8px; background: rgba(11, 28, 39, 0.25); }
+.apply-perforce-summary dt { color: var(--muted); font-size: 0.62rem; line-height: 1.3; }
+.apply-perforce-summary dd { overflow: hidden; margin: 3px 0 0; color: var(--text); font-size: 0.72rem; font-weight: 600; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1050px) { .apply-perforce-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .history-refresh-button { min-height: 34px; }
 .history-list { display: grid; gap: 9px; }

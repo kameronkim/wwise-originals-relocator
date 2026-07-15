@@ -3,8 +3,8 @@ import tempfile
 import unittest
 
 from wwise_p4_source_relocator.cli import main
-from wwise_p4_source_relocator.models import ScanResult, SourceItem
-from wwise_p4_source_relocator.report import write_json_document
+from wwise_p4_source_relocator.models import ScanResult, SourceItem, ValidationResult
+from wwise_p4_source_relocator.report import render_validation, write_json_document
 
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "sample_project"
@@ -78,6 +78,33 @@ class ReportTests(unittest.TestCase):
             )
             markdown = plan_path.with_suffix(".md").read_text(encoding="utf-8")
             self.assertIn("Move candidates: 1", markdown)
+
+    def test_validation_report_includes_perforce_changelist_summary(self) -> None:
+        report = render_validation(
+            ValidationResult(
+                (),
+                details={
+                    "perforce": {
+                        "changelist": "123456",
+                        "moveAddCount": 2,
+                        "moveDeleteCount": 2,
+                        "movePairCount": 2,
+                        "expectedMoveCount": 2,
+                        "workUnitEditCount": 1,
+                        "expectedWorkUnitCount": 1,
+                        "actualFileCount": 5,
+                        "expectedFileCount": 5,
+                        "unexpectedFileCount": 0,
+                        "missingFileCount": 0,
+                    }
+                },
+            )
+        )
+
+        self.assertIn("## Perforce Changelist", report)
+        self.assertIn("Changelist: `123456`", report)
+        self.assertIn("Linked move pairs: 2 / 2", report)
+        self.assertIn("Changelist files: 5 / 5", report)
 
 
 if __name__ == "__main__":

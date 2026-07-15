@@ -131,6 +131,34 @@ def render_validation(result: ValidationResult) -> str:
         f"- Valid: {'yes' if result.is_valid else 'no'}",
         f"- Issues: {len(result.issues)}",
     ]
+    perforce = (result.details or {}).get("perforce")
+    if isinstance(perforce, dict):
+        lines.extend(
+            (
+                "",
+                "## Perforce Changelist",
+                "",
+                f"- Changelist: `{_detail(perforce, 'changelist')}`",
+                "- WAV move/add: "
+                f"{_detail(perforce, 'moveAddCount')} / "
+                f"{_detail(perforce, 'expectedMoveCount')}",
+                "- WAV move/delete: "
+                f"{_detail(perforce, 'moveDeleteCount')} / "
+                f"{_detail(perforce, 'expectedMoveCount')}",
+                "- Linked move pairs: "
+                f"{_detail(perforce, 'movePairCount')} / "
+                f"{_detail(perforce, 'expectedMoveCount')}",
+                "- Work Unit edits: "
+                f"{_detail(perforce, 'workUnitEditCount')} / "
+                f"{_detail(perforce, 'expectedWorkUnitCount')}",
+                "- Changelist files: "
+                f"{_detail(perforce, 'actualFileCount')} / "
+                f"{_detail(perforce, 'expectedFileCount')}",
+                "- Unexpected files: "
+                f"{_detail(perforce, 'unexpectedFileCount')}",
+                f"- Missing files: {_detail(perforce, 'missingFileCount')}",
+            )
+        )
     if result.issues:
         lines.extend(("", "## Issues", ""))
         lines.extend(
@@ -139,6 +167,10 @@ def render_validation(result: ValidationResult) -> str:
             for issue in result.issues
         )
     return "\n".join(lines) + "\n"
+
+
+def _detail(values: dict[str, object], key: str) -> object:
+    return values.get(key, "—")
 
 
 def _read_json_object(input_path: str | Path) -> dict[str, object]:

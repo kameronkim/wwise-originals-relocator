@@ -92,6 +92,11 @@ const validationMessages = {
   'p4-opened-failed': 'Perforce opened 상태를 읽지 못했습니다.',
   'p4-move-missing': 'Perforce에 WAV move/add와 move/delete가 모두 보이지 않습니다.',
   'p4-edit-missing': 'Perforce에 Work Unit edit가 보이지 않습니다.',
+  'p4-action-mismatch': '계획한 파일의 Perforce 액션이 올바르지 않습니다.',
+  'p4-changelist-mismatch': '계획한 파일이 다른 changelist에 열려 있습니다.',
+  'p4-move-pair-mismatch': 'WAV의 move/add와 move/delete가 하나의 이동으로 연결되지 않았습니다.',
+  'p4-changelist-extra-files': 'changelist에 이 작업과 관계없는 파일이 포함되어 있습니다.',
+  'p4-changelist-missing-files': 'changelist에 이 작업에 필요한 파일이 빠져 있습니다.',
   'p4-diff-failed': 'Perforce Work Unit diff를 읽지 못했습니다.',
   'unsafe-p4-diff': 'Work Unit diff가 source 경로 변경만으로 제한되지 않았습니다.',
   'work-unit-local-changes': 'Work Unit에 이 작업 이전의 로컬 변경이 있습니다. P4V에서 변경을 먼저 정리하세요.',
@@ -598,8 +603,9 @@ function renderApplyValidation(result) {
     ? 'Wwise 반영 확인 완료'
     : '확인이 필요한 항목';
   element('apply-validation-summary').textContent = valid
-    ? '로컬 파일, Perforce opened/diff, Wwise 객체와 source 경로가 모두 일치합니다.'
+    ? '로컬 파일, Perforce changelist, Wwise 객체와 source 경로가 모두 일치합니다.'
     : '아래 항목을 해결하거나 Rollback한 뒤 다시 계획해 주세요.';
+  renderPerforceValidation(validation.details?.perforce);
   const list = element('apply-validation-list');
   list.replaceChildren();
   for (const issue of issues) {
@@ -619,6 +625,36 @@ function renderApplyValidation(result) {
     element('apply-report').textContent = `적용 검증 보고서: ${result.reports.validation}${metrics}`;
     element('apply-report').hidden = false;
   }
+}
+
+function renderPerforceValidation(perforce) {
+  const summary = element('apply-perforce-summary');
+  summary.replaceChildren();
+  if (!perforce) {
+    summary.hidden = true;
+    return;
+  }
+  const changelist = perforce.isDefault
+    ? '기본 changelist'
+    : `#${perforce.changelist}`;
+  const entries = [
+    ['Changelist', changelist],
+    ['WAV 이동 쌍', `${perforce.movePairCount || 0} / ${perforce.expectedMoveCount || 0}`],
+    ['Work Unit edit', `${perforce.workUnitEditCount || 0} / ${perforce.expectedWorkUnitCount || 0}`],
+    ['전체 파일 범위', `${perforce.actualFileCount || 0} / ${perforce.expectedFileCount || 0}`],
+    ['예상 밖 파일', `${perforce.unexpectedFileCount || 0}개`],
+    ['누락 파일', `${perforce.missingFileCount || 0}개`],
+  ];
+  for (const [label, value] of entries) {
+    const item = document.createElement('div');
+    const term = document.createElement('dt');
+    const description = document.createElement('dd');
+    term.textContent = label;
+    description.textContent = value;
+    item.append(term, description);
+    summary.append(item);
+  }
+  summary.hidden = false;
 }
 
 function renderValidationIssues(issues) {
@@ -1170,7 +1206,24 @@ function loadPreview(previewMode = '1') {
     });
     renderApplyValidation({
       valid: true,
-      validation: {valid: true, issues: []},
+      validation: {
+        valid: true,
+        issues: [],
+        details: {
+          perforce: {
+            changelist: '123456',
+            isDefault: false,
+            expectedMoveCount: 3,
+            movePairCount: 3,
+            expectedWorkUnitCount: 1,
+            workUnitEditCount: 1,
+            expectedFileCount: 7,
+            actualFileCount: 7,
+            unexpectedFileCount: 0,
+            missingFileCount: 0,
+          },
+        },
+      },
       reports: {validation: 'data/reports/validate-apply/apply-validation.md'},
     });
   }
