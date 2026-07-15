@@ -49,8 +49,10 @@ and tickets are never stored by the application.
 3. Run the environment check.
 4. Build and review the relocation plan.
 5. Select one or more safe items and confirm the complete path list.
-6. Apply the move, reload External Project Changes in Wwise, and run validation.
-7. Hand the validated change to P4V, or roll it back with the recorded manifest.
+6. Apply the move and wait for the **Wwise Reload required** state.
+7. Reload the affected Work Unit in Wwise External Project Changes, then run
+   validation.
+8. Hand the validated change to P4V, or roll it back with the recorded manifest.
 
 The Korean [offline usage guide](docs/usage-guide.html) contains the complete
 screen-based instructions and troubleshooting steps. The same guide is bundled
@@ -69,6 +71,8 @@ Mutation, apply, and rollback controls remain disabled in this mode.
 - A rollback manifest is saved before the first mutating Perforce command.
 - Shared, ambiguous, missing, conflicting, or out-of-workspace sources stop
   automatic mutation.
+- Existing local changes in an affected Work Unit stop the operation before
+  the first Perforce mutation.
 - A selected-file batch is fully preflighted before mutation and reverses
   completed moves if a later item fails.
 - Wwise External Project Changes must be reloaded manually before live
