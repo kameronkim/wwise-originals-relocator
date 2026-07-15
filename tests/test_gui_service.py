@@ -112,7 +112,7 @@ def fake_apply(plan, **values: object):
     manifest = RollbackManifest(
         created_at="2026-07-13T00:00:00+00:00",
         project_root=plan.project_root,
-        changelist=values["changelist"],
+        changelist=None,
         moves=tuple(
             MoveRecord(item.from_relative_path, item.to_relative_path)
             for item in selected
@@ -159,6 +159,14 @@ def failed_apply_with_recovery_manifest(plan, **values: object):
         manifest.with_status("failed"), values["manifest_path"]
     )
     raise ApplyError("automatic rollback failed")
+
+
+def failed_apply_with_completed_automatic_rollback(plan, **values: object):
+    manifest, _ = fake_apply(plan, **values)
+    write_json_document(
+        manifest.with_status("rolled-back"), values["manifest_path"]
+    )
+    raise ApplyError("post-apply validation failed")
 
 
 class FixedOpenedProbe:
@@ -486,10 +494,7 @@ class PortableGuiServiceTests(unittest.TestCase):
                 p4_client_factory=lambda *_: object(),
                 workspace_probe_factory=lambda *_: object(),
             )
-            settings = {
-                **self.settings(project_root),
-                "changelist": "123456",
-            }
+            settings = self.settings(project_root)
             service.run_plan(settings)
 
             applied = service.run_apply(settings, "line.wav", "line.wav")
@@ -499,7 +504,6 @@ class PortableGuiServiceTests(unittest.TestCase):
                 "awaiting-wwise-reload",
                 applied["activeOperation"]["status"],
             )
-            self.assertEqual("123456", applied["activeOperation"]["changelist"])
             self.assertTrue(Path(applied["reports"]["manifest"]).is_file())
             recovered = service.initial_state()["activeOperation"]
             self.assertEqual("line.wav", recovered["sourceFileName"])
@@ -687,9 +691,8 @@ class PortableGuiServiceTests(unittest.TestCase):
                     (local_issue,),
                     details={
                         "perforce": {
-                            "changelist": "123",
-                            "expectedFileCount": 3,
-                            "actualFileCount": 2,
+                            "expectedMoveCount": 1,
+                            "movePairCount": 0,
                         }
                     },
                 ),
@@ -709,8 +712,8 @@ class PortableGuiServiceTests(unittest.TestCase):
                 [issue["code"] for issue in result["validation"]["issues"]],
             )
             self.assertEqual(
-                "123",
-                result["validation"]["details"]["perforce"]["changelist"],
+                0,
+                result["validation"]["details"]["perforce"]["movePairCount"],
             )
 
     def test_gui_rejects_live_validation_for_failed_manifest(self) -> None:
@@ -746,7 +749,7 @@ class PortableGuiServiceTests(unittest.TestCase):
             with self.assertRaisesRegex(GuiServiceError, "로컬 테스트"):
                 service.run_apply(settings, "line.wav", "line.wav")
 
-    def test_apply_rejects_a_non_numeric_changelist(self) -> None:
+    def test_apply_ignores_a_legacy_changelist_setting(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             project_root = root / "project"
@@ -758,8 +761,10 @@ class PortableGuiServiceTests(unittest.TestCase):
             }
             service.run_plan(settings)
 
-            with self.assertRaisesRegex(GuiServiceError, "숫자만"):
-                service.run_apply(settings, "line.wav", "line.wav")
+            result = service.run_apply(settings, "line.wav", "line.wav")
+
+            self.assertTrue(result["applied"])
+            self.assertNotIn("changelist", result["activeOperation"])
 
     def test_failed_automatic_recovery_remains_available_to_rollback(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -785,6 +790,29 @@ class PortableGuiServiceTests(unittest.TestCase):
                 "automatic rollback failed",
                 Path(result["reports"]["failure"]).read_text(encoding="utf-8"),
             )
+
+    def test_completed_automatic_rollback_is_reported_and_added_to_history(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            service = self.make_service(
+                root / "data",
+                applier=failed_apply_with_completed_automatic_rollback,
+                p4_client_factory=lambda *_: object(),
+                workspace_probe_factory=lambda *_: object(),
+            )
+            settings = self.settings(project_root)
+            service.run_plan(settings)
+
+            result = service.run_apply(settings, "line.wav", "line.wav")
+            history = service.get_operation_history(settings)
+
+            self.assertFalse(result["applied"])
+            self.assertTrue(result["autoRolledBack"])
+            self.assertIsNone(result["activeOperation"])
+            self.assertIn("자동으로 복구", result["errorMessage"])
+            self.assertEqual("rolled-back", history["entries"][0]["status"])
 
     def test_rollback_exception_still_writes_a_validation_report(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

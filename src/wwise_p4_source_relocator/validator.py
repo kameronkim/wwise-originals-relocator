@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
-import re
 import subprocess
 from typing import Protocol
 from urllib.parse import urlparse
@@ -136,8 +135,7 @@ def validate_applied_manifest(
             )
 
     perforce_issue_start = len(issues)
-    perforce_issues, perforce_summary = _validate_perforce_changelist(
-        manifest,
+    perforce_issues, perforce_summary = _validate_perforce_opened_state(
         resolved_moves=resolved_moves,
         resolved_work_units=tuple(resolved_work_units.values()),
         p4=p4,
@@ -170,14 +168,12 @@ def validate_applied_manifest(
     )
 
 
-def _validate_perforce_changelist(
-    manifest: RollbackManifest,
+def _validate_perforce_opened_state(
     *,
     resolved_moves: tuple[tuple[Path, Path], ...],
     resolved_work_units: tuple[Path, ...],
     p4: P4Client,
 ) -> tuple[tuple[ValidationIssue, ...], dict[str, object]]:
-    expected_change = manifest.changelist or "default"
     expected_actions: dict[str, tuple[Path, str]] = {}
     for source, target in resolved_moves:
         expected_actions[_local_path_key(source)] = (source, "move/delete")
@@ -198,11 +194,15 @@ def _validate_perforce_changelist(
 
     records_by_local_path: dict[str, list[dict[str, str]]] = {}
     for record in records:
-        local_path = record.get("clientFile") or record.get("path")
-        if local_path:
-            records_by_local_path.setdefault(_local_path_key(local_path), []).append(
-                record
+        for field in ("clientFile", "path"):
+            local_path = record.get(field)
+            if not local_path:
+                continue
+            records_for_path = records_by_local_path.setdefault(
+                _local_path_key(local_path), []
             )
+            if record not in records_for_path:
+                records_for_path.append(record)
 
     matched_records: dict[str, dict[str, str]] = {}
     action_counts = {"move/add": 0, "move/delete": 0, "edit": 0}
@@ -231,15 +231,6 @@ def _validate_perforce_changelist(
             )
         else:
             action_counts[expected_action] += 1
-        actual_change = record.get("change", "default") or "default"
-        if actual_change != expected_change:
-            issues.append(
-                ValidationIssue(
-                    "p4-changelist-mismatch",
-                    f"Expected changelist {expected_change}, but Perforce reports {actual_change}",
-                    str(path),
-                )
-            )
 
     paired_moves = 0
     for source, target in resolved_moves:
@@ -267,70 +258,16 @@ def _validate_perforce_changelist(
                 )
             )
 
-    expected_depot_files = {
-        _depot_path_key(record["depotFile"]): record["depotFile"]
-        for record in matched_records.values()
-        if record.get("depotFile")
-    }
-    actual_depot_files: dict[str, str] = {}
-    if not any(issue.code == "p4-opened-failed" for issue in issues):
-        try:
-            opened = p4.run(p4.opened(changelist=expected_change)).stdout
-            actual_depot_files = {
-                _depot_path_key(depot_file): depot_file
-                for depot_file in _opened_depot_files(opened)
-            }
-        except (OSError, subprocess.CalledProcessError) as exc:
-            issues.append(ValidationIssue("p4-opened-failed", str(exc)))
-
-    unexpected_keys = actual_depot_files.keys() - expected_depot_files.keys()
-    missing_keys = expected_depot_files.keys() - actual_depot_files.keys()
-    unexpected_files = sorted(actual_depot_files[key] for key in unexpected_keys)
-    missing_files = sorted(expected_depot_files[key] for key in missing_keys)
-    if unexpected_files:
-        issues.append(
-            ValidationIssue(
-                "p4-changelist-extra-files",
-                "The changelist contains files outside this relocation operation: "
-                + ", ".join(unexpected_files),
-            )
-        )
-    if missing_files:
-        issues.append(
-            ValidationIssue(
-                "p4-changelist-missing-files",
-                "The changelist is missing files from this relocation operation: "
-                + ", ".join(missing_files),
-            )
-        )
-
     summary: dict[str, object] = {
-        "changelist": expected_change,
-        "isDefault": manifest.changelist is None,
         "expectedMoveCount": len(resolved_moves),
         "moveAddCount": action_counts["move/add"],
         "moveDeleteCount": action_counts["move/delete"],
         "movePairCount": paired_moves,
         "expectedWorkUnitCount": len(resolved_work_units),
         "workUnitEditCount": action_counts["edit"],
-        "expectedFileCount": len(expected_actions),
-        "actualFileCount": len(actual_depot_files),
-        "unexpectedFileCount": len(unexpected_files),
-        "missingFileCount": len(missing_files),
-        "unexpectedFiles": unexpected_files,
-        "missingFiles": missing_files,
         "valid": False,
     }
     return tuple(issues), summary
-
-
-def _opened_depot_files(output: str) -> tuple[str, ...]:
-    depot_files: list[str] = []
-    for line in output.splitlines():
-        match = re.match(r"^(//.+?)#\d+\s+-\s+", line.strip())
-        if match:
-            depot_files.append(match.group(1))
-    return tuple(depot_files)
 
 
 def _local_path_key(path: str | Path) -> str:

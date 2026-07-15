@@ -93,10 +93,7 @@ const validationMessages = {
   'p4-move-missing': 'Perforce에 WAV move/add와 move/delete가 모두 보이지 않습니다.',
   'p4-edit-missing': 'Perforce에 Work Unit edit가 보이지 않습니다.',
   'p4-action-mismatch': '계획한 파일의 Perforce 액션이 올바르지 않습니다.',
-  'p4-changelist-mismatch': '계획한 파일이 다른 changelist에 열려 있습니다.',
   'p4-move-pair-mismatch': 'WAV의 move/add와 move/delete가 하나의 이동으로 연결되지 않았습니다.',
-  'p4-changelist-extra-files': 'changelist에 이 작업과 관계없는 파일이 포함되어 있습니다.',
-  'p4-changelist-missing-files': 'changelist에 이 작업에 필요한 파일이 빠져 있습니다.',
   'p4-diff-failed': 'Perforce Work Unit diff를 읽지 못했습니다.',
   'unsafe-p4-diff': 'Work Unit diff가 source 경로 변경만으로 제한되지 않았습니다.',
   'work-unit-local-changes': 'Work Unit에 이 작업 이전의 로컬 변경이 있습니다. P4V에서 변경을 먼저 정리하세요.',
@@ -124,7 +121,6 @@ function settingsFromForm() {
     p4User: element('p4-user').value.trim(),
     p4Client: element('p4-client').value.trim(),
     p4Charset: element('p4-charset').value.trim(),
-    changelist: element('changelist').value.trim(),
     offlineTestMode: element('offline-test-mode').checked,
   };
 }
@@ -139,7 +135,6 @@ function applySettings(settings) {
   element('p4-user').value = settings.p4User || '';
   element('p4-client').value = settings.p4Client || '';
   element('p4-charset').value = settings.p4Charset || '';
-  element('changelist').value = settings.changelist || '';
   element('offline-test-mode').checked = settings.offlineTestMode === true;
   updateProjectState();
   updateOfflineModePresentation();
@@ -184,7 +179,6 @@ function updateOfflineModePresentation() {
   element('p4-user').disabled = enabled || mutationLocked;
   element('p4-client').disabled = enabled || mutationLocked;
   element('p4-charset').disabled = enabled || mutationLocked;
-  element('changelist').disabled = enabled || mutationLocked;
   element('offline-test-mode').disabled = mutationLocked;
   element('project-root').disabled = mutationLocked;
   element('choose-p4').disabled = enabled || mutationLocked || state.busy || !state.bridgeReady;
@@ -450,7 +444,7 @@ function renderApplySelection() {
       : `${selectedNames.length}개 파일이 선택되었습니다.`;
     element('selected-move').textContent = selected.length === 1
       ? `${selected[0].from} → ${selected[0].to}`
-      : `${selected.length}개 WAV를 같은 changelist에서 이동`;
+      : `${selected.length}개 WAV를 Perforce move로 이동`;
     setStep('apply', 'active');
   }
   updateApplyButtons();
@@ -480,7 +474,7 @@ function renderActiveOperation(operation) {
       : `${operationNames.length}개 파일 작업입니다.`;
     element('active-move').textContent = operationNames.length === 1
       ? `${operation.from} → ${operation.to}`
-      : `${operationNames.length}개 WAV를 같은 changelist에서 이동`;
+      : `${operationNames.length}개 WAV를 Perforce move로 이동`;
     element('apply-report').textContent = `Rollback manifest: ${operation.manifest}`;
     element('apply-report').hidden = false;
     element('run-validate-apply').hidden = !['awaiting-wwise-reload', 'applied'].includes(operation.status);
@@ -535,15 +529,11 @@ function renderOperationHistory(history = {}) {
 
     const details = document.createElement('div');
     details.className = 'history-details';
-    const changelist = document.createElement('span');
-    changelist.textContent = operation.changelist
-      ? `Changelist ${operation.changelist}`
-      : '기본 changelist';
     const validation = document.createElement('span');
     validation.textContent = operation.validationRecorded
       ? '검증 보고서 있음'
       : '검증 보고서 없음';
-    details.append(changelist, validation);
+    details.append(validation);
 
     const reportDetails = document.createElement('details');
     const reportSummary = document.createElement('summary');
@@ -603,7 +593,7 @@ function renderApplyValidation(result) {
     ? 'Wwise 반영 확인 완료'
     : '확인이 필요한 항목';
   element('apply-validation-summary').textContent = valid
-    ? '로컬 파일, Perforce changelist, Wwise 객체와 source 경로가 모두 일치합니다.'
+    ? '로컬 파일, Perforce 액션과 이동 연결, Wwise 객체와 source 경로가 모두 일치합니다.'
     : '아래 항목을 해결하거나 Rollback한 뒤 다시 계획해 주세요.';
   renderPerforceValidation(validation.details?.perforce);
   const list = element('apply-validation-list');
@@ -634,16 +624,11 @@ function renderPerforceValidation(perforce) {
     summary.hidden = true;
     return;
   }
-  const changelist = perforce.isDefault
-    ? '기본 changelist'
-    : `#${perforce.changelist}`;
   const entries = [
-    ['Changelist', changelist],
+    ['move/add', `${perforce.moveAddCount || 0} / ${perforce.expectedMoveCount || 0}`],
+    ['move/delete', `${perforce.moveDeleteCount || 0} / ${perforce.expectedMoveCount || 0}`],
     ['WAV 이동 쌍', `${perforce.movePairCount || 0} / ${perforce.expectedMoveCount || 0}`],
     ['Work Unit edit', `${perforce.workUnitEditCount || 0} / ${perforce.expectedWorkUnitCount || 0}`],
-    ['전체 파일 범위', `${perforce.actualFileCount || 0} / ${perforce.expectedFileCount || 0}`],
-    ['예상 밖 파일', `${perforce.unexpectedFileCount || 0}개`],
-    ['누락 파일', `${perforce.missingFileCount || 0}개`],
   ];
   for (const [label, value] of entries) {
     const item = document.createElement('div');
@@ -924,7 +909,7 @@ async function runApply() {
   const names = items.map((item) => item.sourceFileName);
   const confirmationToken = names.join('\n');
   const accepted = window.confirm(
-    `${summarizeFileNames(names, 5, '\n')}\n\n선택한 WAV ${items.length}개를 같은 changelist에서 Perforce move하고 Work Unit 경로를 변경합니다.\n하나라도 실패하면 이미 적용한 항목을 자동으로 복구합니다. 이 프로그램은 submit하지 않습니다. 계속할까요?`,
+    `${summarizeFileNames(names, 5, '\n')}\n\n선택한 WAV ${items.length}개를 Perforce move하고 Work Unit 경로를 변경합니다.\n하나라도 실패하면 이미 적용한 항목을 자동으로 복구합니다. 이 프로그램은 submit하지 않습니다. 계속할까요?`,
   );
   if (!accepted) return;
   clearError();
@@ -939,7 +924,14 @@ async function runApply() {
     if (!result.applied) {
       if (result.activeOperation) renderActiveOperation(result.activeOperation);
       await refreshOperationHistory({reportErrors: false});
-      setBusy(false);
+      if (result.autoRolledBack) {
+        renderActiveOperation(null);
+        element('apply-state').textContent = '자동 복구 완료';
+        element('apply-state').className = 'panel-state warning';
+        setBusy(false, '적용 검증 실패 후 모든 변경을 자동으로 복구했습니다');
+      } else {
+        setBusy(false);
+      }
       showError(result.errorMessage || '파일 적용을 완료하지 못했습니다.');
       return;
     }
@@ -947,6 +939,7 @@ async function runApply() {
     await refreshOperationHistory({reportErrors: false});
     setBusy(false, `${items.length}개 파일을 적용했습니다. Wwise에서 외부 변경을 다시 불러오세요`);
   } catch (error) {
+    await refreshOperationHistory({reportErrors: false});
     setBusy(false);
     showError(error.message);
   }
@@ -1144,12 +1137,11 @@ function loadPreview(previewMode = '1') {
     p4User: 'audio.user',
     p4Client: 'audio-workspace',
     p4Charset: 'utf8',
-    changelist: '123456',
     offlineTestMode: false,
   });
   renderSystem({
     platform: 'Windows',
-    appVersion: '0.1.0rc5',
+    appVersion: '0.1.0rc6',
     p4Detected: true,
     p4Executable: 'C:\\Program Files\\Perforce\\p4.exe',
     p4Connection: {
@@ -1199,7 +1191,6 @@ function loadPreview(previewMode = '1') {
       from: 'Originals/Voices/English(US)/Scenario/CH04/CH04_S102_WT_001.wav',
       to: 'Originals/Voices/English(US)/Script/CH04/CH04_S102_WT_001.wav',
       objectPath: '\\Containers\\Default Work Unit\\VO\\Script\\CH04\\CH04_S102_WT_001',
-      changelist: '123456',
       status: 'handed-off',
       validated: false,
       manifest: 'data/reports/apply/rollback-manifest.json',
@@ -1211,16 +1202,12 @@ function loadPreview(previewMode = '1') {
         issues: [],
         details: {
           perforce: {
-            changelist: '123456',
-            isDefault: false,
             expectedMoveCount: 3,
+            moveAddCount: 3,
+            moveDeleteCount: 3,
             movePairCount: 3,
             expectedWorkUnitCount: 1,
             workUnitEditCount: 1,
-            expectedFileCount: 7,
-            actualFileCount: 7,
-            unexpectedFileCount: 0,
-            missingFileCount: 0,
           },
         },
       },
@@ -1234,7 +1221,6 @@ function loadPreview(previewMode = '1') {
         sourceFileName: 'CH04_S102_WT_001.wav',
         from: 'Originals/Voices/English(US)/Scenario/CH04/CH04_S102_WT_001.wav',
         to: 'Originals/Voices/English(US)/Script/CH04/CH04_S102_WT_001.wav',
-        changelist: '123456',
         status: 'handed-off',
         validationRecorded: true,
         validationReport: 'data/reports/validate-apply/apply-validation.md',
@@ -1245,7 +1231,6 @@ function loadPreview(previewMode = '1') {
         sourceFileName: 'CH04_CUT_010.wav',
         from: 'Originals/Voices/English(US)/Cutscene/CH04/CH04_CUT_010.wav',
         to: 'Originals/Voices/English(US)/Script/CH04/CH04_CUT_010.wav',
-        changelist: '123455',
         status: 'rolled-back',
         validationRecorded: false,
         reportDirectory: 'data/reports/20260713T072000.000000Z-apply',

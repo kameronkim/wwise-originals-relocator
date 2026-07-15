@@ -136,9 +136,8 @@ def render_validation(result: ValidationResult) -> str:
         lines.extend(
             (
                 "",
-                "## Perforce Changelist",
+                "## Perforce Opened State",
                 "",
-                f"- Changelist: `{_detail(perforce, 'changelist')}`",
                 "- WAV move/add: "
                 f"{_detail(perforce, 'moveAddCount')} / "
                 f"{_detail(perforce, 'expectedMoveCount')}",
@@ -151,12 +150,6 @@ def render_validation(result: ValidationResult) -> str:
                 "- Work Unit edits: "
                 f"{_detail(perforce, 'workUnitEditCount')} / "
                 f"{_detail(perforce, 'expectedWorkUnitCount')}",
-                "- Changelist files: "
-                f"{_detail(perforce, 'actualFileCount')} / "
-                f"{_detail(perforce, 'expectedFileCount')}",
-                "- Unexpected files: "
-                f"{_detail(perforce, 'unexpectedFileCount')}",
-                f"- Missing files: {_detail(perforce, 'missingFileCount')}",
             )
         )
     if result.issues:
