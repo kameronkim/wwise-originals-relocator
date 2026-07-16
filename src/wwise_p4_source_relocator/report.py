@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import stat
+import tempfile
 
 from .models import (
     NoOpPlan,
@@ -14,10 +17,9 @@ from .models import (
 
 def write_json_plan(plan: NoOpPlan, output_path: str | Path) -> None:
     path = Path(output_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    _write_text_atomically(
+        path,
         json.dumps(plan.to_dict(), indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
     )
 
 
@@ -25,11 +27,39 @@ def write_json_document(document: object, output_path: str | Path) -> None:
     if not hasattr(document, "to_dict"):
         raise TypeError("JSON document must provide to_dict()")
     path = Path(output_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    _write_text_atomically(
+        path,
         json.dumps(document.to_dict(), indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
     )
+
+
+def _write_text_atomically(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = (
+        stat.S_IMODE(path.stat().st_mode)
+        if path.exists()
+        else None
+    )
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content.encode("utf-8"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        if mode is not None:
+            os.chmod(temporary_path, mode)
+        _replace_file(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def _replace_file(source: Path, target: Path) -> None:
+    os.replace(source, target)
 
 
 def read_scan_result(input_path: str | Path) -> ScanResult:

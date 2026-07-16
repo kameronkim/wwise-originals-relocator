@@ -285,15 +285,21 @@ class ValidationResult:
 class MoveRecord:
     from_relative_path: str
     to_relative_path: str
+    source_sha256: str | None = None
 
-    def to_dict(self) -> dict[str, str]:
-        return {"from": self.from_relative_path, "to": self.to_relative_path}
+    def to_dict(self) -> dict[str, str | None]:
+        return {
+            "from": self.from_relative_path,
+            "to": self.to_relative_path,
+            "sourceSha256": self.source_sha256,
+        }
 
     @classmethod
     def from_dict(cls, value: dict[str, object]) -> "MoveRecord":
         return cls(
             from_relative_path=_required_string(value, "from"),
             to_relative_path=_required_string(value, "to"),
+            source_sha256=_optional_string(value.get("sourceSha256")),
         )
 
 
@@ -367,6 +373,8 @@ ManifestStatus = Literal[
     "failed",
 ]
 
+OperationMode = Literal["perforce", "local-filesystem"]
+
 
 @dataclass(frozen=True, slots=True)
 class RollbackManifest:
@@ -377,6 +385,8 @@ class RollbackManifest:
     patched_files: tuple[PatchedFileRecord, ...]
     affected_objects: tuple[AffectedObjectRecord, ...]
     unmanaged_files_to_delete: tuple[str, ...]
+    created_directories: tuple[str, ...] = ()
+    operation_mode: OperationMode = "perforce"
     status: ManifestStatus = "prepared"
     schema_version: int = 1
 
@@ -389,6 +399,7 @@ class RollbackManifest:
             "createdAt": self.created_at,
             "projectRoot": self.project_root.as_posix(),
             "changelist": self.changelist,
+            "operationMode": self.operation_mode,
             "status": self.status,
             "moves": [move.to_dict() for move in self.moves],
             "patchedFiles": [record.to_dict() for record in self.patched_files],
@@ -396,6 +407,7 @@ class RollbackManifest:
                 record.to_dict() for record in self.affected_objects
             ],
             "unmanagedFilesToDelete": list(self.unmanaged_files_to_delete),
+            "createdDirectories": list(self.created_directories),
         }
 
     @classmethod
@@ -408,6 +420,11 @@ class RollbackManifest:
             isinstance(path, str) for path in unmanaged
         ):
             raise ValueError("unmanagedFilesToDelete must be a list of strings")
+        created_directories = value.get("createdDirectories", [])
+        if not isinstance(created_directories, list) or not all(
+            isinstance(path, str) for path in created_directories
+        ):
+            raise ValueError("createdDirectories must be a list of strings")
         status = _required_string(value, "status")
         if status not in {
             "prepared",
@@ -419,6 +436,12 @@ class RollbackManifest:
             "failed",
         }:
             raise ValueError(f"Unsupported manifest status: {status}")
+        operation_mode = value.get("operationMode", "perforce")
+        if not isinstance(operation_mode, str) or operation_mode not in {
+            "perforce",
+            "local-filesystem",
+        }:
+            raise ValueError(f"Unsupported operation mode: {operation_mode}")
         return cls(
             created_at=_required_string(value, "createdAt"),
             project_root=Path(_required_string(value, "projectRoot")),
@@ -432,6 +455,8 @@ class RollbackManifest:
                 for record in affected_objects
             ),
             unmanaged_files_to_delete=tuple(unmanaged),
+            created_directories=tuple(created_directories),
+            operation_mode=operation_mode,
             status=status,
             schema_version=int(value.get("schemaVersion", 1)),
         )

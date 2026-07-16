@@ -3,9 +3,10 @@
 A portable desktop tool for moving Wwise Originals WAV files while preserving
 Perforce history and Wwise source references.
 
-The application builds a relocation plan, moves approved WAV files with
-`p4 move`, patches only the matching Wwise Work Unit source paths, and validates
-the result against the filesystem, Perforce, and live Wwise objects.
+The application builds a relocation plan, moves approved WAV files, patches
+only the matching Wwise Work Unit source paths, and validates the result against
+the filesystem and live Wwise objects. Normal operations use `p4 move` and add
+Perforce validation before the final P4V review.
 
 ## Download
 
@@ -24,8 +25,9 @@ dependencies.
 ## Requirements
 
 - Wwise Authoring with WAAPI enabled and the target project open
-- Perforce CLI (`p4` or `p4.exe`) and a mapped workspace for real operations
-- P4V for the final diff review and submit or revert workflow
+- Perforce CLI (`p4` or `p4.exe`) and a mapped workspace for Perforce-tracked
+  operations; neither is required for local test mode
+- P4V for the final diff review and submit or revert workflow in normal mode
 - Windows x64 or macOS arm64
 
 The application does not install Wwise, Perforce, WebView2, or system web
@@ -44,7 +46,7 @@ P4V passes the active `P4PORT`, `P4USER`, `P4CLIENT`, and `P4CHARSET` context
 directly to the app. The existing Perforce login ticket is reused; passwords
 and tickets are never stored by the application.
 
-## Operator workflow
+## Perforce operator workflow
 
 1. Open the target project in Wwise and enable WAAPI.
 2. Start the portable application and select the folder containing one
@@ -67,30 +69,44 @@ inside every portable ZIP.
 ## Perforce-free test mode
 
 Enable the **Perforce-free local test mode** to exercise Wwise/WAAPI scanning,
-local path checks, planning, and reports without a Perforce installation.
-Mutation, apply, and rollback controls remain disabled in this mode.
+planning, and the complete local file-change cycle without a Perforce
+installation. Apply moves the selected WAV files directly on disk, patches the
+matching Work Unit source paths, and waits for the same Wwise External Project
+Changes reload used by a normal operation. After reload, the app validates the
+local files, Work Unit references, and live Wwise objects. A manifest is saved
+before mutation so the same portable app folder can safely roll the test back.
+
+Local test mode does not create Perforce `move/add` or `move/delete` metadata
+and does not offer P4V handoff. Treat it as a Wwise and filesystem rehearsal:
+roll it back, disable local test mode, and start a new normal operation when the
+change must be tracked and reviewed in Perforce.
 
 ## Safety boundaries
 
 - Planning and readiness checks do not modify the project.
-- WAV relocation uses `p4 move`; the application never submits Perforce changes.
-- Post-apply validation checks every expected `move/add`, `move/delete`, and
-  Work Unit `edit`, and verifies that each source and target form one move pair.
-- A rollback manifest is saved before the first mutating Perforce command.
+- Normal WAV relocation uses `p4 move`; local test mode uses a direct filesystem
+  move. The application never submits Perforce changes.
+- Normal post-apply validation checks every expected `move/add`, `move/delete`,
+  and Work Unit `edit`, and verifies that each source and target form one move
+  pair. Local test validation checks the moved files, patched Work Units, and
+  live Wwise objects without claiming Perforce state.
+- A rollback manifest is saved before the first file mutation in either mode.
 - Shared, ambiguous, missing, conflicting, or out-of-workspace sources stop
   automatic mutation.
-- Existing local changes in an affected Work Unit stop the operation before
-  the first Perforce mutation.
-- Read-only Perforce mapping and opened-state checks are grouped into bounded
-  batches. Local Work Unit diffs are cached and checked individually, and each
-  WAV move remains individually recorded and recoverable.
+- Existing local changes in an affected Work Unit stop a normal operation
+  before the first Perforce mutation.
+- In normal mode, read-only Perforce mapping and opened-state checks are grouped
+  into bounded batches. Local Work Unit diffs are cached and checked
+  individually, and each WAV move remains individually recorded and
+  recoverable.
 - A selected-file batch is fully preflighted before mutation and reverses
   completed moves if a later item fails.
 - Wwise External Project Changes must be reloaded manually before live
   validation.
 - Apply, validation, and Rollback must use the same extracted release folder so
-  the operation manifest and reports remain available until P4V submit or
-  revert completes the work.
+  the operation manifest and reports remain available. Normal operations keep
+  that folder until P4V submit or revert completes the work; local tests keep it
+  until Rollback restores the project.
 
 Every relocation plan and post-apply validation writes `performance.json`
 beside its other reports. Plan reports record WAAPI, planning, preflight,

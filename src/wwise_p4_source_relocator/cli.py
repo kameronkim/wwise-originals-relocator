@@ -21,8 +21,9 @@ from .report import (
     write_json_plan,
     write_markdown_plan,
 )
-from .rollback import rollback_manifest
+from .rollback import rollback_local_manifest, rollback_manifest
 from .validator import (
+    validate_applied_filesystem_manifest,
     validate_applied_manifest,
     validate_live_wwise_manifest_at_url,
 )
@@ -183,9 +184,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "validate-apply":
         manifest = read_rollback_manifest(args.manifest)
-        result = validate_applied_manifest(
-            manifest, p4=P4Client(dry_run=False)
-        )
+        if manifest.operation_mode == "local-filesystem":
+            result = validate_applied_filesystem_manifest(manifest)
+        else:
+            result = validate_applied_manifest(
+                manifest, p4=P4Client(dry_run=False)
+            )
         try:
             live_result = validate_live_wwise_manifest_at_url(
                 manifest, url=args.waapi_url
@@ -202,11 +206,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if result.is_valid else 1
     if args.command == "rollback":
         manifest = read_rollback_manifest(args.manifest)
-        result = rollback_manifest(
-            manifest,
-            p4=P4Client(dry_run=False),
-            manifest_path=args.manifest,
-        )
+        if manifest.operation_mode == "local-filesystem":
+            result = rollback_local_manifest(
+                manifest,
+                manifest_path=args.manifest,
+            )
+        else:
+            result = rollback_manifest(
+                manifest,
+                p4=P4Client(dry_run=False),
+                manifest_path=args.manifest,
+            )
         print(render_validation(result), end="")
         return 0 if result.is_valid else 1
     if args.command == "doctor":

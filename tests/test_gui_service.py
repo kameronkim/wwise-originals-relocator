@@ -2,6 +2,7 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -142,6 +143,25 @@ def fake_apply(plan, **values: object):
     )
     write_json_document(manifest, values["manifest_path"])
     return manifest, ValidationResult(())
+
+
+def fake_local_apply(plan, **values: object):
+    manifest, validation = fake_apply(plan, **values)
+    manifest = RollbackManifest.from_dict(
+        {
+            **manifest.to_dict(),
+            "operationMode": "local-filesystem",
+            "moves": [
+                {
+                    **move.to_dict(),
+                    "sourceSha256": "c" * 64,
+                }
+                for move in manifest.moves
+            ],
+        }
+    )
+    write_json_document(manifest, values["manifest_path"])
+    return manifest, validation
 
 
 def fake_rollback(manifest, **values: object) -> ValidationResult:
@@ -610,6 +630,65 @@ class PortableGuiServiceTests(unittest.TestCase):
                 service.initial_state()["activeOperation"]["status"],
             )
 
+    def test_gui_blocks_rollback_during_live_apply_validation(self) -> None:
+        live_started = threading.Event()
+        release_live = threading.Event()
+        validation_errors: list[BaseException] = []
+
+        def paused_live(*_: object, **__: object) -> ValidationResult:
+            live_started.set()
+            if not release_live.wait(timeout=5):
+                raise RuntimeError("live validation test timed out")
+            return ValidationResult(())
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            data_root = root / "data"
+            service = self.make_service(
+                data_root,
+                applier=fake_apply,
+                applied_validator=validate,
+                live_validator=paused_live,
+                rollbacker=fake_rollback,
+                p4_client_factory=lambda *_: object(),
+                workspace_probe_factory=lambda *_: object(),
+            )
+            competing_service = self.make_service(
+                data_root,
+                rollbacker=fake_rollback,
+                p4_client_factory=lambda *_: object(),
+                workspace_probe_factory=lambda *_: object(),
+            )
+            settings = self.settings(project_root)
+            service.run_plan(settings)
+            applied = service.run_apply(settings, "line.wav", "line.wav")
+            manifest_path = Path(applied["reports"]["manifest"])
+
+            def validate_in_background() -> None:
+                try:
+                    service.run_validate_apply(settings)
+                except BaseException as exc:
+                    validation_errors.append(exc)
+
+            worker = threading.Thread(target=validate_in_background)
+            worker.start()
+            try:
+                self.assertTrue(live_started.wait(timeout=5))
+                with self.assertRaisesRegex(GuiServiceError, "다른 적용·검증·복구"):
+                    competing_service.run_rollback(settings, "line.wav")
+            finally:
+                release_live.set()
+                worker.join(timeout=5)
+
+            self.assertFalse(worker.is_alive())
+            self.assertEqual([], validation_errors)
+            self.assertEqual(
+                "applied",
+                read_rollback_manifest(manifest_path).status,
+            )
+
     def test_gui_keeps_handoff_locked_while_perforce_paths_are_opened(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -734,20 +813,85 @@ class PortableGuiServiceTests(unittest.TestCase):
             with self.assertRaisesRegex(GuiServiceError, "먼저 Rollback"):
                 service.run_validate_apply(settings)
 
-    def test_offline_mode_cannot_apply_a_plan(self) -> None:
+    def test_offline_mode_applies_validates_and_rolls_back_without_perforce(
+        self,
+    ) -> None:
+        local_validation_calls: list[str] = []
+
+        def reject_perforce(*_: object, **__: object) -> object:
+            raise AssertionError("Perforce must not be used in local test mode")
+
+        def validate_local(manifest) -> ValidationResult:
+            local_validation_calls.append(manifest.operation_mode)
+            return ValidationResult(())
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             project_root = root / "project"
             project_root.mkdir()
-            service = self.make_service(root / "data", applier=fake_apply)
+            service = self.make_service(
+                root / "data",
+                local_applier=fake_local_apply,
+                local_applied_validator=validate_local,
+                local_rollbacker=fake_rollback,
+                live_validator=lambda *_, **__: ValidationResult(()),
+                p4_client_factory=reject_perforce,
+                workspace_probe_factory=reject_perforce,
+            )
+            settings = {
+                **self.settings(project_root),
+                "p4Executable": "",
+                "offlineTestMode": True,
+            }
+            service.run_plan(settings)
+
+            applied = service.run_apply(settings, "line.wav", "line.wav")
+
+            self.assertTrue(applied["applied"])
+            self.assertEqual(
+                "local-filesystem",
+                applied["activeOperation"]["operationMode"],
+            )
+            opposite_settings = {**settings, "offlineTestMode": False}
+            validated = service.run_validate_apply(opposite_settings)
+            self.assertTrue(validated["valid"])
+            self.assertEqual(["local-filesystem"], local_validation_calls)
+
+            with self.assertRaisesRegex(GuiServiceError, "P4V로 인계할 수 없습니다"):
+                service.run_handoff_apply(
+                    opposite_settings,
+                    "line.wav",
+                )
+
+            rolled_back = service.run_rollback(opposite_settings, "line.wav")
+            self.assertTrue(rolled_back["rolledBack"])
+            self.assertIsNone(service.initial_state()["activeOperation"])
+
+    def test_restart_surfaces_prepared_local_manifest_for_rollback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_root = root / "project"
+            project_root.mkdir()
+            data_root = root / "data"
+            service = self.make_service(
+                data_root,
+                local_applier=fake_local_apply,
+            )
             settings = {
                 **self.settings(project_root),
                 "offlineTestMode": True,
             }
             service.run_plan(settings)
+            applied = service.run_apply(settings, "line.wav", "line.wav")
+            manifest_path = Path(applied["reports"]["manifest"])
+            manifest = read_rollback_manifest(manifest_path)
+            write_json_document(manifest.with_status("prepared"), manifest_path)
 
-            with self.assertRaisesRegex(GuiServiceError, "로컬 테스트"):
-                service.run_apply(settings, "line.wav", "line.wav")
+            restarted = self.make_service(data_root)
+            operation = restarted.initial_state()["activeOperation"]
+
+            self.assertEqual("prepared", operation["status"])
+            self.assertEqual("local-filesystem", operation["operationMode"])
 
     def test_apply_ignores_a_legacy_changelist_setting(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

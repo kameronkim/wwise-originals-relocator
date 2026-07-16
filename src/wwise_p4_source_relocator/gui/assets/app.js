@@ -85,8 +85,12 @@ const validationMessages = {
   'already-opened': '다른 작업을 위해 이미 열린 파일이 있습니다.',
   'source-still-exists': '이동 전 위치에 WAV가 남아 있습니다.',
   'target-missing': '이동할 위치에서 WAV를 찾을 수 없습니다.',
+  'source-hash-missing': '로컬 이동 원본의 안전 확인 정보가 없습니다.',
+  'target-read-failed': '이동된 WAV 파일을 읽을 수 없습니다.',
+  'target-content-mismatch': '이동된 WAV가 적용 당시 내용과 다릅니다.',
   'unexpected-wwu-diff': 'Work Unit에 계획하지 않은 변경이 포함되어 있습니다.',
   'work-unit-invalid': 'Work Unit XML을 읽을 수 없습니다.',
+  'work-unit-read-failed': 'Work Unit 파일을 읽을 수 없습니다.',
   'old-source-present': 'Work Unit에 이동 전 source 경로가 남아 있습니다.',
   'new-source-mismatch': 'Work Unit의 새 source 경로가 정확히 하나가 아닙니다.',
   'p4-opened-failed': 'Perforce opened 상태를 읽지 못했습니다.',
@@ -97,6 +101,24 @@ const validationMessages = {
   'p4-diff-failed': 'Perforce Work Unit diff를 읽지 못했습니다.',
   'unsafe-p4-diff': 'Work Unit diff가 source 경로 변경만으로 제한되지 않았습니다.',
   'work-unit-local-changes': 'Work Unit에 이 작업 이전의 로컬 변경이 있습니다. P4V에서 변경을 먼저 정리하세요.',
+  'manifest-scope': '복구 기록의 파일 범위가 올바르지 않습니다.',
+  'operation-mode': '이 복구 기록과 실행 모드가 일치하지 않습니다.',
+  'local-rollback-exception': '로컬 자동 복구가 예기치 않게 중단되었습니다.',
+  'rollback-source-hash-missing': '복구할 WAV의 원본 안전 확인 정보가 없습니다.',
+  'rollback-wav-state-drift': 'WAV의 현재 위치가 복구 기록과 다릅니다.',
+  'rollback-wav-read-failed': '복구할 WAV를 읽을 수 없습니다.',
+  'rollback-wav-drift': '복구할 WAV가 적용 이후 변경되어 자동으로 덮어쓸 수 없습니다.',
+  'rollback-wwu-records-invalid': 'Work Unit 복구 기록이 서로 일치하지 않습니다.',
+  'rollback-wwu-missing': '복구할 Work Unit을 찾을 수 없습니다.',
+  'rollback-wwu-read-failed': '복구할 Work Unit을 읽을 수 없습니다.',
+  'rollback-wwu-drift': 'Work Unit이 적용 이후 변경되어 자동으로 덮어쓸 수 없습니다.',
+  'rollback-wwu-patch-invalid': 'Work Unit의 원래 source 경로를 안전하게 만들 수 없습니다.',
+  'rollback-wwu-patch-mismatch': 'Work Unit 복구 결과가 원본과 일치하지 않습니다.',
+  'rollback-wwu-write-failed': 'Work Unit 원본을 기록하지 못했습니다.',
+  'rollback-wwu-mismatch': '복구된 Work Unit이 원본과 일치하지 않습니다.',
+  'rollback-local-move-failed': 'WAV를 원래 위치로 안전하게 이동하지 못했습니다.',
+  'rollback-directory-drift': '앱이 만든 폴더 위치에 예상하지 못한 파일 상태가 있습니다.',
+  'rollback-directory-remove-failed': '앱이 만든 빈 폴더를 정리하지 못했습니다.',
   'rollback-exception': 'Rollback 실행이 예기치 않게 중단되었습니다. 보고서와 로그를 확인하세요.',
   'wwise-response-invalid': 'Wwise가 올바른 응답을 반환하지 않았습니다.',
   'wwise-object-missing': 'Wwise에서 적용 대상 객체 하나를 찾지 못했습니다.',
@@ -190,7 +212,7 @@ function updateOfflineModePresentation() {
       ? (state.system.p4ConnectionSource === 'p4v-environment' ? 'P4V 환경 감지됨' : '감지됨')
       : '찾지 못함');
   element('p4-detail').textContent = enabled
-    ? '로컬 읽기 전용 점검만 실행합니다'
+    ? '로컬 이동과 Wwise 확인에는 Perforce를 사용하지 않습니다'
     : (p4ConnectionSummary() || state.system.p4Executable || '직접 선택할 수 있습니다');
   element('doctor-step-detail').textContent = enabled
     ? 'Wwise · 로컬 파일 · WAAPI'
@@ -198,6 +220,12 @@ function updateOfflineModePresentation() {
   element('doctor-description').textContent = enabled
     ? 'Wwise 프로젝트, Originals WAV, Work Unit과 WAAPI 연결을 확인합니다. Perforce 점검은 제외됩니다.'
     : 'Wwise 프로젝트, Originals WAV, Work Unit, Perforce workspace와 WAAPI 연결을 확인합니다.';
+  element('apply-description').innerHTML = enabled
+    ? '선택한 WAV를 로컬 파일로 이동하고 해당 Work Unit의 source 경로만 변경합니다. 하나라도 실패하면 이미 적용한 항목을 역순 복구하며, Perforce 액션은 만들지 않습니다.'
+    : '선택한 WAV를 <code>p4 move</code>하고 해당 Work Unit의 source 경로만 변경합니다. 하나라도 실패하면 이미 적용한 항목을 역순 복구하며, 이 프로그램은 submit을 실행하지 않습니다.';
+  element('apply-safety-copy').textContent = enabled
+    ? 'Wwise 저장을 마치세요. 앱은 로컬 WAV와 Work Unit을 실제로 변경하고 즉시 검증하며, 실패하면 자동 복구합니다.'
+    : 'Wwise 저장을 마치세요. 앱은 선택한 파일의 Perforce 액션과 이동 연결을 적용 직후 검증하고, 실패하면 자동 복구합니다.';
   updateApplyButtons();
 }
 
@@ -384,8 +412,11 @@ function isSelectablePlanItem(item, result = state.plan) {
   return Boolean(item
     && item.action === 'move-and-patch'
     && result?.validation?.valid
-    && !result.offlineTestMode
     && !state.activeOperation);
+}
+
+function isLocalFilesystemOperation(operation = state.activeOperation) {
+  return operation?.operationMode === 'local-filesystem';
 }
 
 function movablePlanItems() {
@@ -444,7 +475,9 @@ function renderApplySelection() {
       : `${selectedNames.length}개 파일이 선택되었습니다.`;
     element('selected-move').textContent = selected.length === 1
       ? `${selected[0].from} → ${selected[0].to}`
-      : `${selected.length}개 WAV를 Perforce move로 이동`;
+      : (state.plan?.offlineTestMode
+        ? `${selected.length}개 WAV를 로컬 파일로 이동`
+        : `${selected.length}개 WAV를 Perforce move로 이동`);
     setStep('apply', 'active');
   }
   updateApplyButtons();
@@ -460,10 +493,19 @@ function renderActiveOperation(operation) {
   const validated = operation?.validated === true;
   const handedOff = operation?.status === 'handed-off';
   const awaitingReload = operation?.status === 'awaiting-wwise-reload';
+  const localFilesystem = isLocalFilesystemOperation(operation);
   element('apply-state').textContent = active
     ? (operation.status === 'failed'
       ? 'Rollback 필요'
-      : (handedOff ? 'P4V 마감 대기' : (awaitingReload ? 'Wwise Reload 대기' : '인계 가능')))
+      : (operation.status === 'prepared'
+        ? '복구 확인 필요'
+        : (handedOff
+          ? 'P4V 마감 대기'
+          : (awaitingReload
+            ? 'Wwise Reload 대기'
+            : (localFilesystem
+              ? (validated ? '로컬 검증 완료' : '확인 필요')
+              : '인계 가능')))))
     : '계획 필요';
   element('apply-state').className = `panel-state ${active ? (validated && !handedOff ? 'ready' : 'warning') : 'neutral'}`;
   if (active) {
@@ -474,20 +516,36 @@ function renderActiveOperation(operation) {
       : `${operationNames.length}개 파일 작업입니다.`;
     element('active-move').textContent = operationNames.length === 1
       ? `${operation.from} → ${operation.to}`
-      : `${operationNames.length}개 WAV를 Perforce move로 이동`;
+      : (localFilesystem
+        ? `${operationNames.length}개 WAV를 로컬 파일로 이동`
+        : `${operationNames.length}개 WAV를 Perforce move로 이동`);
     element('apply-report').textContent = `Rollback manifest: ${operation.manifest}`;
     element('apply-report').hidden = false;
     element('run-validate-apply').hidden = !['awaiting-wwise-reload', 'applied'].includes(operation.status);
-    element('run-handoff-apply').hidden = operation.status !== 'applied' || !validated;
-    element('run-check-handoff').hidden = !handedOff;
-    if (handedOff) {
+    element('run-handoff-apply').hidden = localFilesystem || operation.status !== 'applied' || !validated;
+    element('run-check-handoff').hidden = localFilesystem || !handedOff;
+    if (operation.status === 'failed' || operation.status === 'prepared') {
+      element('active-guide-1').textContent = '작업 manifest를 기준으로 현재 파일 상태를 안전하게 확인합니다.';
+      element('active-guide-2').textContent = '다른 프로그램에서 WAV나 Work Unit을 수정하지 마세요.';
+      element('active-guide-3').textContent = '이 작업 Rollback으로 원래 상태 복구를 다시 시도합니다.';
+    } else if (handedOff) {
       element('active-guide-1').textContent = 'P4V에서 WAV move와 Work Unit diff를 최종 검토합니다.';
       element('active-guide-2').textContent = '팀 절차에 따라 submit하거나 변경을 revert합니다.';
       element('active-guide-3').textContent = '마감 뒤 P4V 마감 상태 확인을 눌러 작업 잠금을 해제합니다.';
     } else if (awaitingReload) {
       element('active-guide-1').textContent = 'Wwise의 External Project Changes 창에서 affected Work Unit의 Reload를 누릅니다.';
       element('active-guide-2').textContent = 'Reload가 끝난 뒤 Wwise 반영 확인을 눌러 source 경로를 검증합니다.';
-      element('active-guide-3').textContent = '반영 확인 전에는 P4V 인계를 실행할 수 없습니다.';
+      element('active-guide-3').textContent = localFilesystem
+        ? '테스트가 끝나면 Rollback으로 로컬 파일을 원래 상태로 복구합니다.'
+        : '반영 확인 전에는 P4V 인계를 실행할 수 없습니다.';
+    } else if (localFilesystem && validated) {
+      element('active-guide-1').textContent = '로컬 파일과 Wwise source 경로가 모두 일치합니다.';
+      element('active-guide-2').textContent = '이 테스트는 Perforce move 액션이나 P4V 인계 상태를 만들지 않습니다.';
+      element('active-guide-3').textContent = '확인을 마쳤으면 Rollback으로 원래 상태를 복구합니다.';
+    } else if (localFilesystem) {
+      element('active-guide-1').textContent = '로컬 파일 또는 Wwise 반영 상태에 확인할 항목이 있습니다.';
+      element('active-guide-2').textContent = '표시된 검증 항목을 확인하고 필요하면 Wwise Reload 후 다시 검사합니다.';
+      element('active-guide-3').textContent = '계속 일치하지 않으면 Rollback으로 원래 상태를 복구합니다.';
     } else {
       element('active-guide-1').textContent = 'Wwise와 Perforce 적용 상태를 확인했습니다.';
       element('active-guide-2').textContent = 'P4V로 인계하기 전에 파일과 Work Unit diff를 최종 검토합니다.';
@@ -525,7 +583,9 @@ function renderOperationHistory(history = {}) {
 
     const status = document.createElement('span');
     status.className = `history-status ${operation.status || ''}`;
-    status.textContent = operationStatusLabels[operation.status] || operation.status || '상태 확인 필요';
+    status.textContent = operation.operationMode === 'local-filesystem' && operation.status === 'applied'
+      ? (operation.validated ? '로컬 검증 완료' : '확인 필요')
+      : (operationStatusLabels[operation.status] || operation.status || '상태 확인 필요');
 
     const details = document.createElement('div');
     details.className = 'history-details';
@@ -588,14 +648,17 @@ function renderApplyValidation(result) {
   const panel = element('apply-validation-result');
   const issues = validation.issues || [];
   const valid = validation.valid === true;
+  const localFilesystem = isLocalFilesystemOperation(result.activeOperation || state.activeOperation);
   panel.className = `apply-validation-result ${valid ? 'valid' : 'invalid'}`;
   element('apply-validation-title').textContent = valid
     ? 'Wwise 반영 확인 완료'
     : '확인이 필요한 항목';
   element('apply-validation-summary').textContent = valid
-    ? '로컬 파일, Perforce 액션과 이동 연결, Wwise 객체와 source 경로가 모두 일치합니다.'
+    ? (localFilesystem
+      ? '로컬 파일, Work Unit, Wwise 객체와 source 경로가 모두 일치합니다.'
+      : '로컬 파일, Perforce 액션과 이동 연결, Wwise 객체와 source 경로가 모두 일치합니다.')
     : '아래 항목을 해결하거나 Rollback한 뒤 다시 계획해 주세요.';
-  renderPerforceValidation(validation.details?.perforce);
+  renderPerforceValidation(localFilesystem ? null : validation.details?.perforce);
   const list = element('apply-validation-list');
   list.replaceChildren();
   for (const issue of issues) {
@@ -730,6 +793,7 @@ function setBusy(busy, message = '준비됨') {
 
 function updateApplyButtons() {
   const offline = element('offline-test-mode')?.checked === true;
+  const localFilesystem = isLocalFilesystemOperation();
   const applyButton = element('run-apply');
   const rollbackButton = element('run-rollback');
   const validateButton = element('run-validate-apply');
@@ -738,20 +802,17 @@ function updateApplyButtons() {
   if (applyButton) {
     applyButton.disabled = state.busy
       || !state.bridgeReady
-      || offline
       || state.selectedItems.length === 0
       || Boolean(state.activeOperation);
   }
   if (rollbackButton) {
     rollbackButton.disabled = state.busy
       || !state.bridgeReady
-      || offline
       || !state.activeOperation;
   }
   if (validateButton) {
     validateButton.disabled = state.busy
       || !state.bridgeReady
-      || offline
       || !state.activeOperation
       || !['awaiting-wwise-reload', 'applied'].includes(state.activeOperation.status);
   }
@@ -759,6 +820,7 @@ function updateApplyButtons() {
     handoffButton.disabled = state.busy
       || !state.bridgeReady
       || offline
+      || localFilesystem
       || !state.activeOperation?.validated
       || state.activeOperation.status !== 'applied';
   }
@@ -766,6 +828,7 @@ function updateApplyButtons() {
     checkHandoffButton.disabled = state.busy
       || !state.bridgeReady
       || offline
+      || localFilesystem
       || state.activeOperation?.status !== 'handed-off';
   }
 }
@@ -908,8 +971,12 @@ async function runApply() {
   if (!items.length) return;
   const names = items.map((item) => item.sourceFileName);
   const confirmationToken = names.join('\n');
+  const offline = element('offline-test-mode').checked;
+  const operationDescription = offline
+    ? `선택한 WAV ${items.length}개를 로컬 파일로 이동하고 Work Unit 경로를 변경합니다.\n실제 파일이 변경되지만 manifest를 기준으로 Rollback할 수 있습니다. Perforce 액션은 만들지 않습니다.`
+    : `선택한 WAV ${items.length}개를 Perforce move하고 Work Unit 경로를 변경합니다.\n이 프로그램은 submit하지 않습니다.`;
   const accepted = window.confirm(
-    `${summarizeFileNames(names, 5, '\n')}\n\n선택한 WAV ${items.length}개를 Perforce move하고 Work Unit 경로를 변경합니다.\n하나라도 실패하면 이미 적용한 항목을 자동으로 복구합니다. 이 프로그램은 submit하지 않습니다. 계속할까요?`,
+    `${summarizeFileNames(names, 5, '\n')}\n\n${operationDescription}\n하나라도 실패하면 이미 적용한 항목을 자동으로 복구합니다. 계속할까요?`,
   );
   if (!accepted) return;
   clearError();
@@ -993,7 +1060,9 @@ async function runValidateApply() {
     renderApplyValidation(result);
     await refreshOperationHistory({reportErrors: false});
     setBusy(false, result.valid
-      ? 'Wwise와 Perforce 적용 상태를 확인했습니다'
+      ? (isLocalFilesystemOperation(result.activeOperation)
+        ? 'Wwise와 로컬 파일 적용 상태를 확인했습니다'
+        : 'Wwise와 Perforce 적용 상태를 확인했습니다')
       : '적용 결과에 확인할 항목이 있습니다');
   } catch (error) {
     setBusy(false);
