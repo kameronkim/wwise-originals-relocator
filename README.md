@@ -10,8 +10,8 @@ Perforce validation before the final P4V review.
 
 ## Download
 
-The current build is the
-[v0.1.0-rc.8 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.8):
+The current stable release is the
+[v0.1.0 release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0):
 
 - Windows x64 portable ZIP
 - macOS arm64 portable ZIP
@@ -117,8 +117,9 @@ The application acts only on the selected WAV files and affected Work Units.
 Existing files already open in the workspace are not included in its validation,
 submission, or rollback scope.
 
-`v0.1.0-rc.8` remains a pre-release. A representative 332-file production
-Apply, Wwise reload/validation, and P4V handoff passed, and a separate real
-disposable `p4d` run restored a two-file batch and its shared Work Unit. The
-post-RC8 cleanup still needs an exact-candidate CI/build and frozen-WAMP-worker
-smoke before the metadata-only final `v0.1.0` promotion.
+`v0.1.0` is the first stable release. Its release gate includes a representative
+332-file production Apply, Wwise reload/validation, and P4V handoff; a real
+disposable `p4d` two-file Apply/Rollback with restored WAV and Work Unit hashes;
+and a macOS three-category local Apply, two live Wwise validations, and complete
+Rollback. The final Windows portable workflow also passes tests, security
+checks, packaging, executable smoke testing, and live Perforce integration.
