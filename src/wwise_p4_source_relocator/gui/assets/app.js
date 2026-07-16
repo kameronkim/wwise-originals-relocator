@@ -1141,7 +1141,7 @@ function loadPreview(previewMode = '1') {
   });
   renderSystem({
     platform: 'Windows',
-    appVersion: '0.1.0rc8',
+    appVersion: 'preview',
     p4Detected: true,
     p4Executable: 'C:\\Program Files\\Perforce\\p4.exe',
     p4Connection: {

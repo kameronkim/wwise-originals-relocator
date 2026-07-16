@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,9 +16,10 @@ from wwise_p4_source_relocator.p4_client import (
     P4Connection,
     parse_p4_tagged_records,
 )
-from wwise_p4_source_relocator.applier import apply_single_file
+from wwise_p4_source_relocator.applier import apply_selected_files
 from wwise_p4_source_relocator.models import RelocationPlan, RelocationPlanItem
 from wwise_p4_source_relocator.preflight import P4WorkspaceProbe
+from wwise_p4_source_relocator.report import read_rollback_manifest
 from wwise_p4_source_relocator.rollback import rollback_manifest
 from wwise_p4_source_relocator.validator import _validate_perforce_opened_state
 
@@ -35,11 +37,16 @@ FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "sample_project"
 )
 class LiveP4ServerTests(unittest.TestCase):
     def setUp(self) -> None:
+        self._original_p4passwd = os.environ.pop("P4PASSWD", None)
+        self._original_p4tickets = os.environ.get("P4TICKETS")
+        self.addCleanup(self._restore_p4_environment)
         self.temp = tempfile.TemporaryDirectory(
             prefix=".live-p4-",
             dir=Path.cwd(),
         )
+        self.addCleanup(self.temp.cleanup)
         self.temp_root = Path(self.temp.name)
+        os.environ["P4TICKETS"] = str(self.temp_root / "tickets")
         self.server_root = self.temp_root / "server"
         self.workspace_root = self.temp_root / "Workspace With Spaces"
         self.server_root.mkdir()
@@ -48,6 +55,18 @@ class LiveP4ServerTests(unittest.TestCase):
         self.user = "relocator-test-user"
         self.client_name = "relocator-windows-test"
         self.server_log = self.temp_root / "p4d.log"
+        self._start_server()
+        self.addCleanup(self._stop_server)
+        self._wait_for_server()
+        if not self._create_client():
+            self._bootstrap_secure_server()
+            if not self._create_client():
+                self.fail(
+                    "client creation failed after secure-server bootstrap\n"
+                    f"{self._client_creation_error}"
+                )
+
+    def _start_server(self) -> None:
         self.server = subprocess.Popen(
             (
                 P4D_EXE,
@@ -64,21 +83,19 @@ class LiveP4ServerTests(unittest.TestCase):
             stderr=subprocess.DEVNULL,
             creationflags=_creation_flags(),
         )
-        self._wait_for_server()
-        self._create_client()
 
-    def tearDown(self) -> None:
-        if hasattr(self, "server"):
-            self.server.terminate()
-            try:
-                self.server.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self.server.kill()
-                self.server.wait(timeout=5)
-        self.temp.cleanup()
+    def _restore_p4_environment(self) -> None:
+        if self._original_p4passwd is None:
+            os.environ.pop("P4PASSWD", None)
+        else:
+            os.environ["P4PASSWD"] = self._original_p4passwd
+        if self._original_p4tickets is None:
+            os.environ.pop("P4TICKETS", None)
+        else:
+            os.environ["P4TICKETS"] = self._original_p4tickets
 
     def test_app_fstat_command_reports_move_pair_and_edit(self) -> None:
-        project = self.workspace_root / "Ilias_WwiseProject"
+        project = self.workspace_root / "WwiseTestProject"
         source = (
             project
             / "Originals/Voices/English(US)/Scenario/CH04/CH04_S101_SQ_001.wav"
@@ -157,17 +174,45 @@ class LiveP4ServerTests(unittest.TestCase):
         self._p4("revert", str(source), str(target), str(work_unit))
         e2e_project = self.workspace_root / "EndToEnd_WwiseProject"
         shutil.copytree(FIXTURE_ROOT, e2e_project)
+        second_source = (
+            e2e_project
+            / "Originals/Voices/English(US)/Dialog/CH04/CH04_D001_WT_001.wav"
+        )
+        second_source.parent.mkdir(parents=True, exist_ok=True)
+        second_source.write_bytes(b"RIFF-live-p4-second-wave")
         self._p4("reconcile", "-a", str(e2e_project / "..."))
         self._p4("submit", "-d", "Seed end-to-end apply fixture")
         manifest_path = self.temp_root / "rollback-manifest.json"
+        e2e_plan = _build_plan(e2e_project)
+        selected_names = tuple(item.source_file_name for item in e2e_plan.items)
+        source_paths = tuple(
+            e2e_project / str(item.from_relative_path) for item in e2e_plan.items
+        )
+        target_paths = tuple(
+            e2e_project / str(item.to_relative_path) for item in e2e_plan.items
+        )
+        e2e_work_unit = (
+            e2e_project / "Actor-Mixer Hierarchy/Default Work Unit.wwu"
+        )
+        original_source_hashes = tuple(_sha256(path) for path in source_paths)
+        original_work_unit_hash = _sha256(e2e_work_unit)
         end_to_end_error = ""
         end_to_end_status = ""
         end_to_end_validation: dict[str, object] = {}
+        manifest_move_count = 0
+        apply_sources_absent = False
+        apply_targets_present = False
+        apply_work_unit_changed = False
         rollback_valid = False
+        rollback_status = ""
+        rollback_sources_restored = False
+        rollback_targets_removed = False
+        rollback_work_unit_restored = False
+        rollback_opened_file_count = -1
         try:
-            manifest, validation = apply_single_file(
-                _build_plan(e2e_project),
-                only="CH04_S102_WT_001.wav",
+            manifest, validation = apply_selected_files(
+                e2e_plan,
+                only=selected_names,
                 manifest_path=manifest_path,
                 p4=client,
                 probe=P4WorkspaceProbe(
@@ -176,14 +221,72 @@ class LiveP4ServerTests(unittest.TestCase):
                 ),
             )
             end_to_end_status = manifest.status
-            end_to_end_validation = validation.details or {}
+            manifest_move_count = len(manifest.moves)
+            perforce_details = (validation.details or {}).get("perforce")
+            if isinstance(perforce_details, dict):
+                end_to_end_validation = {
+                    key: perforce_details.get(key)
+                    for key in (
+                        "expectedMoveCount",
+                        "moveAddCount",
+                        "moveDeleteCount",
+                        "movePairCount",
+                        "expectedWorkUnitCount",
+                        "workUnitEditCount",
+                        "valid",
+                    )
+                }
+            apply_sources_absent = all(
+                not path.exists() for path in source_paths
+            )
+            apply_targets_present = all(path.is_file() for path in target_paths)
+            apply_work_unit_changed = (
+                _sha256(e2e_work_unit) != original_work_unit_hash
+            )
             rollback_valid = rollback_manifest(
                 manifest,
                 p4=client,
                 manifest_path=manifest_path,
             ).is_valid
+            rollback_status = read_rollback_manifest(manifest_path).status
+            rollback_sources_restored = all(
+                path.is_file() and _sha256(path) == expected_hash
+                for path, expected_hash in zip(
+                    source_paths,
+                    original_source_hashes,
+                )
+            )
+            rollback_targets_removed = all(
+                not path.exists() for path in target_paths
+            )
+            rollback_work_unit_restored = (
+                _sha256(e2e_work_unit) == original_work_unit_hash
+            )
+            post_rollback_opened = _run(
+                (
+                    P4_EXE,
+                    "-p",
+                    self.port,
+                    "-u",
+                    self.user,
+                    "-c",
+                    self.client_name,
+                    "-ztag",
+                    "opened",
+                    str(e2e_project / "..."),
+                )
+            )
+            rollback_opened_file_count = len(
+                [
+                    record
+                    for record in parse_p4_tagged_records(
+                        post_rollback_opened.stdout
+                    )
+                    if record.get("depotFile") or record.get("clientFile")
+                ]
+            )
         except Exception as exc:  # evidence must survive a regression failure
-            end_to_end_error = f"{type(exc).__name__}: {exc}"
+            end_to_end_error = type(exc).__name__
 
         evidence = {
             "platform": os.name,
@@ -208,10 +311,24 @@ class LiveP4ServerTests(unittest.TestCase):
             ],
             "validatorSummary": summary,
             "endToEnd": {
-                "status": end_to_end_status,
-                "validation": end_to_end_validation,
-                "rollbackValid": rollback_valid,
-                "error": end_to_end_error,
+                "selectedFileCount": len(selected_names),
+                "manifestMoveCount": manifest_move_count,
+                "statusBeforeRollback": end_to_end_status,
+                "perforce": end_to_end_validation,
+                "apply": {
+                    "sourcesAbsent": apply_sources_absent,
+                    "targetsPresent": apply_targets_present,
+                    "workUnitChanged": apply_work_unit_changed,
+                },
+                "rollback": {
+                    "valid": rollback_valid,
+                    "manifestStatus": rollback_status,
+                    "sourcesRestored": rollback_sources_restored,
+                    "targetsRemoved": rollback_targets_removed,
+                    "workUnitHashRestored": rollback_work_unit_restored,
+                    "openedFileCount": rollback_opened_file_count,
+                },
+                "errorType": end_to_end_error,
             },
         }
         evidence_path = Path(
@@ -232,7 +349,60 @@ class LiveP4ServerTests(unittest.TestCase):
             end_to_end_status,
             evidence_path.read_text("utf-8"),
         )
+        self.assertEqual(2, manifest_move_count, evidence_path.read_text("utf-8"))
+        self.assertTrue(
+            apply_sources_absent,
+            evidence_path.read_text("utf-8"),
+        )
+        self.assertTrue(
+            apply_targets_present,
+            evidence_path.read_text("utf-8"),
+        )
+        self.assertTrue(
+            apply_work_unit_changed,
+            evidence_path.read_text("utf-8"),
+        )
+        self.assertEqual(
+            {
+                "moveAddCount": 2,
+                "moveDeleteCount": 2,
+                "movePairCount": 2,
+                "workUnitEditCount": 1,
+            },
+            {
+                key: end_to_end_validation.get(key)
+                for key in (
+                    "moveAddCount",
+                    "moveDeleteCount",
+                    "movePairCount",
+                    "workUnitEditCount",
+                )
+            },
+            evidence_path.read_text("utf-8"),
+        )
         self.assertTrue(rollback_valid, evidence_path.read_text("utf-8"))
+        self.assertEqual(
+            "rolled-back",
+            rollback_status,
+            evidence_path.read_text("utf-8"),
+        )
+        self.assertTrue(
+            rollback_sources_restored,
+            evidence_path.read_text("utf-8"),
+        )
+        self.assertTrue(
+            rollback_targets_removed,
+            evidence_path.read_text("utf-8"),
+        )
+        self.assertTrue(
+            rollback_work_unit_restored,
+            evidence_path.read_text("utf-8"),
+        )
+        self.assertEqual(
+            0,
+            rollback_opened_file_count,
+            evidence_path.read_text("utf-8"),
+        )
         self.assertEqual(
             {
                 "moveAddCount": 1,
@@ -265,7 +435,7 @@ class LiveP4ServerTests(unittest.TestCase):
         log = self.server_log.read_text(encoding="utf-8", errors="replace")
         self.fail(f"p4d did not become ready on {self.port}\n{log}")
 
-    def _create_client(self) -> None:
+    def _create_client(self) -> bool:
         root = str(self.workspace_root)
         spec = (
             f"Client: {self.client_name}\n"
@@ -280,8 +450,68 @@ class LiveP4ServerTests(unittest.TestCase):
             (P4_EXE, "-p", self.port, "-u", self.user, "client", "-i"),
             input_text=spec,
         )
-        if result.returncode != 0:
-            self.fail(f"client creation failed\n{result.stdout}\n{result.stderr}")
+        if result.returncode == 0:
+            return True
+        output = f"{result.stdout}\n{result.stderr}"
+        self._client_creation_error = output
+        if "P4PASSWD" in output:
+            return False
+        self.fail(f"client creation failed\n{result.stdout}\n{result.stderr}")
+
+    def _bootstrap_secure_server(self) -> None:
+        self._stop_server()
+        for setting in (
+            "dm.user.noautocreate=0",
+            "dm.user.setinitialpasswd=1",
+            "dm.user.resetpassword=0",
+            "run.users.authorize=0",
+            "dm.user.hideinvalid=0",
+        ):
+            result = _run(
+                (
+                    P4D_EXE,
+                    "-r",
+                    str(self.server_root),
+                    f"-cset {setting}",
+                )
+            )
+            if result.returncode != 0:
+                self.fail(
+                    f"secure-server bootstrap failed: {setting}\n"
+                    f"{result.stdout}\n{result.stderr}"
+                )
+        self._start_server()
+        self._wait_for_server()
+        password = "disposable-relocator-test"
+        passwd = _run(
+            (P4_EXE, "-p", self.port, "-u", self.user, "passwd"),
+            input_text=f"{password}\n{password}\n",
+        )
+        if passwd.returncode != 0:
+            self.fail(
+                "first-user password bootstrap failed\n"
+                f"{passwd.stdout}\n{passwd.stderr}"
+            )
+        os.environ["P4PASSWD"] = password
+        login = _run(
+            (P4_EXE, "-p", self.port, "-u", self.user, "login"),
+            input_text=f"{password}\n",
+        )
+        if login.returncode != 0:
+            self.fail(
+                "first-user login bootstrap failed\n"
+                f"{login.stdout}\n{login.stderr}"
+            )
+
+    def _stop_server(self) -> None:
+        if not hasattr(self, "server") or self.server.poll() is not None:
+            return
+        self.server.terminate()
+        try:
+            self.server.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.server.kill()
+            self.server.wait(timeout=5)
 
     def _p4(self, *args: str) -> subprocess.CompletedProcess[str]:
         result = _run(
@@ -334,8 +564,30 @@ def _build_plan(project_root: Path) -> RelocationPlan:
                 work_unit_path="Actor-Mixer Hierarchy/Default Work Unit.wwu",
                 action="move-and-patch",
             ),
+            RelocationPlanItem(
+                object_path=(
+                    r"\Containers\Default Work Unit\VO\Temp_VO\Script\CH04"
+                    r"\CH04_D001_WT_001"
+                ),
+                guid="{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}",
+                source_file_name="CH04_D001_WT_001.wav",
+                from_relative_path=(
+                    "Originals/Voices/English(US)/Dialog/CH04/"
+                    "CH04_D001_WT_001.wav"
+                ),
+                to_relative_path=(
+                    "Originals/Voices/English(US)/Script/CH04/"
+                    "CH04_D001_WT_001.wav"
+                ),
+                work_unit_path="Actor-Mixer Hierarchy/Default Work Unit.wwu",
+                action="move-and-patch",
+            ),
         ),
     )
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _creation_flags() -> int:

@@ -1,9 +1,10 @@
-from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
 import tomllib
 import unittest
+from pathlib import Path
 
 from wwise_p4_source_relocator import __version__
 
@@ -22,18 +23,45 @@ class PortablePackageTests(unittest.TestCase):
         )
         changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         release_version = __version__.replace("rc", "-rc.")
-        self.assertIn(release_version, changelog)
+        release_heading_match = re.search(
+            rf"^## \[{re.escape(release_version)}\] - \d{{4}}-\d{{2}}-\d{{2}}$",
+            changelog,
+            flags=re.MULTILINE,
+        )
+        self.assertIsNotNone(release_heading_match)
+        release_heading = release_heading_match.group(0)
+        unreleased = changelog.split("## Unreleased", maxsplit=1)[1].split(
+            release_heading, maxsplit=1
+        )[0]
+        self.assertNotIn(f"Target test candidate: `v{release_version}`", unreleased)
         self.assertIn("real multi-file Wwise and Perforce", changelog)
+
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        release_tag = f"v{release_version}"
+        release_label = "pre-release" if "rc" in __version__ else "release"
+        release_link = (
+            f"[{release_tag} {release_label}]"
+            "(https://github.com/kameronkim/wwise-originals-relocator/"
+            f"releases/tag/{release_tag})"
+        )
+        self.assertIn(release_link, readme)
+        self.assertIn("same extracted release folder", readme)
 
     def test_portable_workflow_covers_integration_branches_and_source(self) -> None:
         workflow = (
             REPO_ROOT / ".github" / "workflows" / "portable.yml"
         ).read_text(encoding="utf-8")
 
+        self.assertIn("  pull_request:\n", workflow)
         self.assertIn('      - "feature/**"', workflow)
         self.assertIn("      - develop", workflow)
         self.assertIn("      - main", workflow)
         self.assertIn('      - "src/**"', workflow)
+        self.assertIn(
+            "path: portable-dist/WwiseOriginalsRelocator-windows-x64.zip",
+            workflow,
+        )
+        self.assertNotIn("path: dist/WwiseOriginalsRelocator/", workflow)
 
     def test_portable_workflow_audits_the_dependencies_it_builds(self) -> None:
         workflow = (
@@ -65,6 +93,9 @@ class PortablePackageTests(unittest.TestCase):
         self.assertIn("다중 파일 안전 적용", guide)
         self.assertIn("프로그램은 submit하지 않습니다", guide)
         self.assertIn("현재 버전의 안전 범위", guide)
+        self.assertIn("Windows x64 · macOS arm64", guide)
+        self.assertIn("Apply를 실행한 동일 릴리스 폴더", guide)
+        self.assertIn("<code>p4</code> 또는 <code>p4.exe</code>", guide)
         self.assertNotIn("apply --only", guide)
         self.assertFalse((REPO_ROOT / "docs" / "portable-gui.html").exists())
 

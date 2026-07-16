@@ -6,7 +6,33 @@ pre-release may document an outstanding live-validation gate.
 
 ## Unreleased
 
-Target test candidate: `v0.1.0-rc.8`
+### Fixed
+
+- Redact non-public Perforce settings from diagnostic logs when `p4 set`
+  fails.
+- Correct RC8 download, rollback-scope, and platform guidance across the public
+  README and offline usage guide.
+
+### Changed
+
+- Run the portable validation workflow for pull requests targeting `develop`
+  or `main`, including dependency update pull requests.
+- Publish the exact Windows portable ZIP produced by the build as the workflow
+  artifact.
+- Expand the real disposable Perforce integration to a two-file batch Apply
+  and exact manifest Rollback with restored WAV, Work Unit, and opened-state
+  checks. Local verification also covers P4 Server 2026.1 secure first-user
+  bootstrap; Windows CI remains pinned to the reviewed 2025.1 binaries.
+
+### Validation status
+
+- RC8 completed a representative 332-file production Apply, two successful
+  Wwise validations, P4V handoff, and final closeout.
+- A separate loopback-only real `p4d` run completed a two-file Apply/Rollback
+  cycle and restored both WAV hashes, the shared Work Unit hash, and a clean
+  project `p4 opened` state.
+
+## [0.1.0-rc.8] - 2026-07-16
 
 ### Fixed
 
@@ -17,12 +43,12 @@ Target test candidate: `v0.1.0-rc.8`
 
 ### Changed
 
-- Standardized release titles as `Wwise Originals Relocator v<version>` and
+- Standardized GitHub release titles as version-only `v<version>` and
   portable archive names as `WwiseOriginalsRelocator-<os>-<arch>.zip`.
 - Made the macOS build script include its detected `arm64` or `x64`
   architecture in the generated ZIP name.
-- Audit the complete portable dependency set before building the Windows
-  executable and raise the Bandit gate to medium severity and above.
+- Audited the complete portable dependency set before building the Windows
+  executable and raised the Bandit gate to medium severity and above.
 
 ### Security
 

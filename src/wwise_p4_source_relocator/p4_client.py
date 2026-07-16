@@ -14,6 +14,9 @@ LOGGER = logging.getLogger(__name__)
 LOGGER.addHandler(logging.NullHandler())
 
 DEFAULT_P4_TIMEOUT = 30.0
+_LOGGABLE_P4_SETTINGS = frozenset(
+    {"P4PORT", "P4USER", "P4CLIENT", "P4CHARSET"}
+)
 
 
 def p4_creation_flags(os_name: str | None = None) -> int:
@@ -528,7 +531,7 @@ def _log_p4_failure(
     operation: str, result: subprocess.CompletedProcess[str]
 ) -> None:
     details = "\n".join(
-        line.strip()
+        _sanitize_p4_failure_line(operation, line.strip())
         for line in f"{result.stdout}\n{result.stderr}".splitlines()
         if line.strip()
     )
@@ -538,6 +541,27 @@ def _log_p4_failure(
         result.returncode,
         details[:2000] or "no output",
     )
+
+
+def _sanitize_p4_failure_line(operation: str, line: str) -> str:
+    if operation != "set":
+        return line
+
+    matches = tuple(re.finditer(r"\b(P4[A-Z0-9_]+)\s*=", line, flags=re.I))
+    if not matches:
+        return line
+
+    sanitized = [line[: matches[0].start()]]
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(line)
+        setting = match.group(1).upper()
+        if setting in _LOGGABLE_P4_SETTINGS:
+            sanitized.append(line[match.start() : end])
+        else:
+            sanitized.append(f"{match.group(1)}=<redacted>")
+            if index + 1 < len(matches):
+                sanitized.append(" ")
+    return "".join(sanitized)
 
 
 def _known_client(value: str | None) -> str | None:

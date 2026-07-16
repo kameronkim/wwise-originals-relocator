@@ -535,10 +535,6 @@ def _run_bounded_live_wamp_validation(
         ) from exc
 
 
-def _diff_contains_only_path_change(diff: str, old_path: str, new_path: str) -> bool:
-    return _diff_contains_only_path_changes(diff, ((old_path, new_path),))
-
-
 def _diff_contains_only_path_changes(
     diff: str, changes: tuple[tuple[str, str], ...]
 ) -> bool:

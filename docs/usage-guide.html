@@ -345,7 +345,7 @@
       </div>
       <div class="topbar-actions">
         <span class="chip live"><span class="chip-dot"></span>오프라인 문서</span>
-        <span class="chip">Windows x64 · macOS</span>
+        <span class="chip">Windows x64 · macOS arm64</span>
         <button id="theme-toggle" class="icon-button" type="button" aria-label="색상 모드 전환">
           <svg class="icon theme-icon-moon" aria-hidden="true"><use href="#i-moon"></use></svg>
           <svg class="icon theme-icon-sun" aria-hidden="true"><use href="#i-sun"></use></svg>
@@ -381,7 +381,7 @@
           <div>
             <p class="eyebrow"><svg class="icon"><use href="#i-shield"></use></svg>Portable 사용 가이드</p>
             <h1 id="hero-title"><span class="hero-title-line">Wwise Originals를</span><span class="hero-title-line">안전하게 정리하는 방법</span></h1>
-            <p class="hero-lede">코드를 몰라도 괜찮습니다. 프로젝트를 선택하고 환경을 확인한 뒤, 화면에 표시된 이동 계획만 검토하세요. 프로그램은 제출하지 않으며 언제든 기록된 manifest로 복구할 수 있습니다.</p>
+            <p class="hero-lede">코드를 몰라도 괜찮습니다. 프로젝트를 선택하고 환경을 확인한 뒤, 화면에 표시된 이동 계획만 검토하세요. 프로그램은 제출하지 않으며 P4V 마감 전에는 적용을 시작한 동일 릴리스 폴더의 manifest로 복구할 수 있습니다.</p>
             <div class="hero-actions">
               <a class="button primary" href="#start">빠른 시작 <svg class="icon"><use href="#i-arrow"></use></svg></a>
               <a class="button" href="#trouble"><svg class="icon"><use href="#i-help"></use></svg>문제 해결 보기</a>
@@ -405,7 +405,7 @@
             <article class="card soft"><span class="card-icon"><svg class="icon"><use href="#i-folder"></use></svg></span><h3>Workspace mapping</h3><p>프로젝트 폴더가 현재 Perforce workspace view에 포함되어야 합니다.</p><span class="card-meta">P4V에서 확인</span></article>
             <article class="card soft"><span class="card-icon"><svg class="icon"><use href="#i-hard-drive"></use></svg></span><h3>쓰기 가능한 폴더</h3><p>ZIP 전체를 로컬 폴더에 풀어야 설정, 로그와 보고서를 저장할 수 있습니다.</p><span class="card-meta">Portable data</span></article>
           </div>
-          <div class="callout warning"><svg class="icon"><use href="#i-alert"></use></svg><div><strong>실행 파일만 따로 복사하지 마세요</strong><p>실행 파일, <code>_internal</code> 폴더, 사용 가이드와 라이선스 파일을 같은 폴더에 유지하세요.</p></div></div>
+          <div class="callout warning"><svg class="icon"><use href="#i-alert"></use></svg><div><strong>실행 파일만 따로 복사하지 마세요</strong><p>실행 파일, <code>_internal</code> 폴더, 사용 가이드와 라이선스 파일을 같은 폴더에 유지하세요. Apply를 시작했다면 Wwise Reload, 반영 확인과 필요한 Rollback까지 같은 압축 해제 폴더의 앱으로 마쳐야 합니다.</p></div></div>
         </section>
 
         <section id="start" class="section">
@@ -419,7 +419,7 @@
         </section>
 
         <section id="p4v" class="section">
-          <div class="section-heading"><div class="section-title-wrap"><span class="section-icon"><svg class="icon"><use href="#i-plug"></use></svg></span><div><p class="section-kicker">P4V connection</p><h2>P4V 연결 사용</h2><p class="section-description">파일 명령은 <code>p4.exe</code>가 실행하지만, 서버·사용자·workspace와 기존 로그인 티켓은 P4V 환경을 그대로 사용합니다.</p></div></div></div>
+          <div class="section-heading"><div class="section-title-wrap"><span class="section-icon"><svg class="icon"><use href="#i-plug"></use></svg></span><div><p class="section-kicker">P4V connection</p><h2>P4V 연결 사용</h2><p class="section-description">파일 명령은 <code>p4</code> 또는 <code>p4.exe</code>가 실행하지만, 서버·사용자·workspace와 기존 로그인 티켓은 P4V 환경을 그대로 사용합니다.</p></div></div></div>
           <div class="connection-panel">
             <div class="connection-flow">
               <article class="connection-node"><span class="card-icon"><svg class="icon"><use href="#i-monitor"></use></svg></span><strong>1. P4V에서 로그인</strong><p>대상 서버와 workspace를 선택합니다.</p></article>
@@ -432,7 +432,7 @@
           </div>
           <div class="grid two" style="margin-top: 16px">
             <div class="callout" style="margin-top: 0"><svg class="icon"><use href="#i-plug"></use></svg><div><strong>P4V Tools 메뉴에서 실행하면 가장 정확합니다</strong><p><strong>Tools → Manage Tools</strong>에 앱을 외부 도구로 등록하면 P4V가 현재 연결 값을 앱에 전달합니다.</p></div></div>
-            <div class="callout warning" style="margin-top: 0"><svg class="icon"><use href="#i-alert"></use></svg><div><strong>P4V 화면만으로 적용하지는 않습니다</strong><p><code>p4.exe</code>를 찾지 못하면 고급 연결 설정의 <strong>직접 선택</strong>으로 지정하세요. 비밀번호와 티켓은 저장하지 않습니다.</p></div></div>
+            <div class="callout warning" style="margin-top: 0"><svg class="icon"><use href="#i-alert"></use></svg><div><strong>P4V 화면만으로 적용하지는 않습니다</strong><p><code>p4</code> 또는 <code>p4.exe</code>를 찾지 못하면 고급 연결 설정의 <strong>직접 선택</strong>으로 지정하세요. 비밀번호와 티켓은 저장하지 않습니다.</p></div></div>
           </div>
         </section>
 
@@ -452,7 +452,7 @@
             <article class="check-card"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>Wwise 프로젝트</strong><p><code>.wproj</code> 파일이 정확히 하나 있어야 합니다.</p></div></article>
             <article class="check-card"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>Originals WAV</strong><p><code>Originals</code> 아래에 WAV source가 있어야 합니다.</p></div></article>
             <article class="check-card"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>Work Unit source</strong><p>source reference가 포함된 <code>.wwu</code>를 읽을 수 있어야 합니다.</p></div></article>
-            <article class="check-card"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>Perforce CLI</strong><p>찾지 못하면 <code>p4.exe</code>를 직접 선택하세요.</p></div></article>
+            <article class="check-card"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>Perforce CLI</strong><p>찾지 못하면 <code>p4</code> 또는 <code>p4.exe</code>를 직접 선택하세요.</p></div></article>
             <article class="check-card"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>P4V 연결</strong><p>서버·사용자·workspace가 P4V와 같은지 확인하세요.</p></div></article>
             <article class="check-card"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>Perforce workspace</strong><p>프로젝트 폴더가 workspace view 안에 있어야 합니다.</p></div></article>
             <article class="check-card"><span class="check-symbol"><svg class="icon"><use href="#i-check"></use></svg></span><div><strong>Wwise 연결</strong><p>대상 프로젝트와 WAAPI가 열려 있고 설정창이 없어야 합니다.</p></div></article>
@@ -486,7 +486,7 @@
             <div class="timeline-item"><span class="timeline-dot"><svg class="icon"><use href="#i-plug"></use></svg></span><div class="timeline-copy"><strong>6. P4V 검토 및 인계</strong><p>WAV move와 Work Unit diff를 최종 검토합니다. 프로그램은 submit하지 않습니다.</p></div></div>
             <div class="timeline-item"><span class="timeline-dot"><svg class="icon"><use href="#i-shield"></use></svg></span><div class="timeline-copy"><strong>7. 마감 상태 확인</strong><p>P4V에서 submit 또는 revert를 마친 뒤 열린 파일과 Wwise 결과를 확인하고 다음 작업을 허용합니다.</p></div></div>
           </div>
-          <div class="rollback-branch"><svg class="icon"><use href="#i-rotate"></use></svg><span><strong>Rollback 경로:</strong> P4V 마감 전이라면 manifest에 기록된 WAV와 Work Unit만 역순으로 원래 상태로 복구할 수 있습니다.</span></div>
+          <div class="rollback-branch"><svg class="icon"><use href="#i-rotate"></use></svg><span><strong>Rollback 경로:</strong> P4V에서 submit 또는 revert하기 전이라면 Apply를 실행한 동일 릴리스 폴더의 앱에서 manifest에 기록된 WAV와 Work Unit만 역순으로 복구할 수 있습니다. 앱 폴더를 바꾸거나 새 릴리스로 교체하기 전에 현재 작업을 마감하세요.</span></div>
           <div class="callout danger"><svg class="icon"><use href="#i-alert"></use></svg><div><strong>프로그램은 submit하지 않습니다</strong><p>최종 제출은 팀의 기존 P4V 검토와 승인 절차를 사용하세요. 현재 작업을 마감하거나 Rollback하기 전에는 다음 적용을 시작할 수 없습니다.</p></div></div>
         </section>
 
@@ -507,7 +507,7 @@
           <div class="faq-list">
             <details class="faq"><summary>운영체제가 확인되지 않은 앱이라고 표시함 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>개발용 artifact에는 Windows 코드 서명 또는 macOS notarization이 없을 수 있습니다. 보안 정책을 우회하지 말고 배포 담당자에게 승인된 빌드인지 확인하세요.</p></div></details>
             <details class="faq"><summary>Wwise 연결을 통과하지 못함 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>대상 프로젝트와 WAAPI가 활성화되어 있는지 확인하고 설정창이나 저장 확인창을 닫으세요. 프로젝트 불일치가 표시되면 선택한 폴더의 프로젝트를 Wwise에서 다시 엽니다.</p></div></details>
-            <details class="faq"><summary>P4V는 연결되지만 Perforce 점검이 실패함 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p><strong>Workspace 선택 필요</strong>가 표시되면 P4V에서 이 프로젝트가 포함된 workspace를 선택한 뒤 <strong>고급 연결 설정 → 연결 불러오기</strong>를 누르세요. 서버 연결 실패와 workspace 미선택은 별도 항목으로 표시됩니다. 계속 연결을 찾지 못하면 <code>p4.exe</code>를 직접 선택하거나 P4V의 <strong>Tools → Manage Tools</strong>에 앱을 등록해 실행합니다.</p></div></details>
+            <details class="faq"><summary>P4V는 연결되지만 Perforce 점검이 실패함 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p><strong>Workspace 선택 필요</strong>가 표시되면 P4V에서 이 프로젝트가 포함된 workspace를 선택한 뒤 <strong>고급 연결 설정 → 연결 불러오기</strong>를 누르세요. 서버 연결 실패와 workspace 미선택은 별도 항목으로 표시됩니다. 계속 연결을 찾지 못하면 <code>p4</code> 또는 <code>p4.exe</code>를 직접 선택하거나 P4V의 <strong>Tools → Manage Tools</strong>에 앱을 등록해 실행합니다.</p></div></details>
             <details class="faq"><summary>이동 계획 또는 반영 확인이 오래 걸림 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>계획 보고서 옆에는 WAAPI, Perforce 명령 횟수·시간과 표 표시 시간이 나타납니다. Wwise 반영 확인 뒤에는 검증한 객체 수, WAAPI 요청 횟수와 전체 시간이 나타납니다. 각 보고서 폴더의 <code>performance.json</code>에서 상세 시간을 확인할 수 있습니다. 현재 버전은 읽기 전용 Perforce 조회와 live Wwise 객체 검증을 각각 제한된 크기의 묶음으로 처리하며, WAMP 반영 검증이 90초 동안 응답하지 않으면 작업을 중단하고 오류를 표시합니다. 오류가 반복되면 이 파일과 로그를 함께 전달하세요.</p></div></details>
             <details class="faq"><summary>적용 후 Wwise에 이전 경로가 보임 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>External Project Changes에서 affected Work Unit을 다시 불러온 뒤 <strong>Wwise 반영 확인</strong>을 누르세요. 계속 실패하면 보고서를 확인하고 P4V 마감 전 Rollback을 진행합니다.</p></div></details>
             <details class="faq"><summary>Work Unit 기존 변경 때문에 적용이 차단됨 <svg class="icon"><use href="#i-chevron"></use></svg></summary><div class="faq-body"><p>앱이 수정할 <code>.wwu</code>에 다른 로컬 변경이 감지된 상태입니다. 해당 변경을 먼저 P4V에서 정리하거나 submit/revert한 뒤 환경 확인과 이동 계획을 다시 실행하세요. 다른 작업을 보존한 채 강제로 덮어쓰지는 않습니다.</p></div></details>
