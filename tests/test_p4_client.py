@@ -297,6 +297,45 @@ class P4ClientTests(unittest.TestCase):
         self.assertEqual("172.16.32.101:1666", info.connection.port)
         self.assertEqual("localhost.localdomain:1666", info.server_address)
 
+    def test_query_connection_redacts_secret_settings_from_failure_log(self) -> None:
+        info_result = subprocess.CompletedProcess(
+            ("p4",),
+            0,
+            stdout=(
+                "... userName audio.user\n"
+                "... clientName audio-workspace\n"
+                "... serverAddress ssl:perforce.example.com:1666\n"
+            ),
+            stderr="",
+        )
+        set_result = subprocess.CompletedProcess(
+            ("p4",),
+            1,
+            stdout=(
+                "P4PORT=ssl:perforce.example.com:1666 (set);"
+                "P4PASSWD=super-secret-ticket (set)\n"
+                "P4TICKETS=C:/Users/audio.user/p4tickets.txt (set);"
+                "P4CONFIG=private-config.txt (set)\n"
+            ),
+            stderr="error: unable to read settings\n",
+        )
+
+        with patch("subprocess.run", side_effect=(info_result, set_result)):
+            with self.assertLogs(
+                "wwise_p4_source_relocator.p4_client", level="WARNING"
+            ) as captured:
+                info = query_p4_connection(cwd="C:/Work/Audio")
+
+        log_output = "\n".join(captured.output)
+        self.assertEqual("audio-workspace", info.connection.client)
+        self.assertIn("P4PORT=ssl:perforce.example.com:1666", log_output)
+        self.assertIn("P4PASSWD=<redacted>", log_output)
+        self.assertIn("P4TICKETS=<redacted>", log_output)
+        self.assertIn("P4CONFIG=<redacted>", log_output)
+        self.assertNotIn("super-secret-ticket", log_output)
+        self.assertNotIn("C:/Users/audio.user/p4tickets.txt", log_output)
+        self.assertNotIn("private-config.txt", log_output)
+
     def test_query_connection_selects_unique_workspace_for_project(self) -> None:
         info_result = subprocess.CompletedProcess(
             ("p4",),

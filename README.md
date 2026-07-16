@@ -10,7 +10,7 @@ the result against the filesystem, Perforce, and live Wwise objects.
 ## Download
 
 The current build is the
-[v0.1.0-rc.7 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.7):
+[v0.1.0-rc.8 pre-release](https://github.com/kameronkim/wwise-originals-relocator/releases/tag/v0.1.0-rc.8):
 
 - Windows x64 portable ZIP
 - macOS arm64 portable ZIP
@@ -26,7 +26,7 @@ dependencies.
 - Wwise Authoring with WAAPI enabled and the target project open
 - Perforce CLI (`p4` or `p4.exe`) and a mapped workspace for real operations
 - P4V for the final diff review and submit or revert workflow
-- Windows x64 or a macOS build matching the target CPU architecture
+- Windows x64 or macOS arm64
 
 The application does not install Wwise, Perforce, WebView2, or system web
 components.
@@ -56,6 +56,9 @@ and tickets are never stored by the application.
 7. Reload the affected Work Unit in Wwise External Project Changes, then run
    validation.
 8. Hand the validated change to P4V, or roll it back with the recorded manifest.
+   Complete Apply, Wwise reload, validation, and any Rollback from the same
+   extracted release folder; do not replace or move that folder while an
+   operation remains open.
 
 The Korean [offline usage guide](docs/usage-guide.html) contains the complete
 screen-based instructions and troubleshooting steps. The same guide is bundled
@@ -85,6 +88,9 @@ Mutation, apply, and rollback controls remain disabled in this mode.
   completed moves if a later item fails.
 - Wwise External Project Changes must be reloaded manually before live
   validation.
+- Apply, validation, and Rollback must use the same extracted release folder so
+  the operation manifest and reports remain available until P4V submit or
+  revert completes the work.
 
 Every relocation plan and post-apply validation writes `performance.json`
 beside its other reports. Plan reports record WAAPI, planning, preflight,
@@ -95,6 +101,8 @@ The application acts only on the selected WAV files and affected Work Units.
 Existing files already open in the workspace are not included in its validation,
 submission, or rollback scope.
 
-`v0.1.0-rc.7` remains a pre-release because a real multi-file Wwise and
-Perforce apply/validate/rollback pilot is still required before final
-`v0.1.0` approval.
+`v0.1.0-rc.8` remains a pre-release. A representative 332-file production
+Apply, Wwise reload/validation, and P4V handoff passed, and a separate real
+disposable `p4d` run restored a two-file batch and its shared Work Unit. The
+post-RC8 cleanup still needs an exact-candidate CI/build and frozen-WAMP-worker
+smoke before the metadata-only final `v0.1.0` promotion.
