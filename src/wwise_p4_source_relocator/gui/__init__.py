@@ -1,4 +1,4 @@
-"""Portable read-only desktop interface for Wwise Originals Relocator."""
+"""Portable desktop interface for planning and applying Originals relocations."""
 
 from .app import main
 

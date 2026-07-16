@@ -2,6 +2,21 @@ name: Build portable GUI
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - develop
+      - main
+    paths:
+      - "src/**"
+      - "packaging/**"
+      - "scripts/**"
+      - "docs/usage-guide.html"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "LICENSE"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/portable.yml"
   push:
     branches:
       - "feature/**"
@@ -115,6 +130,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: WwiseOriginalsRelocator-windows-x64
-          path: dist/WwiseOriginalsRelocator/
+          path: portable-dist/WwiseOriginalsRelocator-windows-x64.zip
           if-no-files-found: error
           retention-days: 14
