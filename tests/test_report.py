@@ -1,6 +1,7 @@
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from wwise_p4_source_relocator.cli import main
 from wwise_p4_source_relocator.models import ScanResult, SourceItem, ValidationResult
@@ -12,6 +13,30 @@ FIXTURE_WWU = FIXTURE_ROOT / "Actor-Mixer Hierarchy" / "Default Work Unit.wwu"
 
 
 class ReportTests(unittest.TestCase):
+    def test_failed_atomic_json_replace_preserves_existing_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "rollback-manifest.json"
+            write_json_document(ValidationResult(()), path)
+            original = path.read_bytes()
+
+            with patch(
+                "wwise_p4_source_relocator.report._replace_file",
+                side_effect=PermissionError("manifest is locked"),
+            ):
+                with self.assertRaises(PermissionError):
+                    write_json_document(
+                        ScanResult(
+                            project_root=FIXTURE_ROOT,
+                            object_root="root",
+                            chapter="CH04",
+                            items=(),
+                        ),
+                        path,
+                    )
+
+            self.assertEqual(original, path.read_bytes())
+            self.assertEqual([], list(path.parent.glob(f".{path.name}.*.tmp")))
+
     def test_inspector_writes_json_and_markdown_noop_reports(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output_root = Path(directory)

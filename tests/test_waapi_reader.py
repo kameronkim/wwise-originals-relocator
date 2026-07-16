@@ -199,6 +199,127 @@ class WaapiReaderTests(unittest.TestCase):
             result.items[0].work_unit_path,
         )
 
+    @unittest.skipIf(
+        os.name == "nt", "Wine-mapped paths apply to non-Windows hosts"
+    )
+    def test_accepts_wine_home_drive_work_unit_path(self) -> None:
+        guid = "{8886C06E-4664-4CEA-B3F1-8668CCDF3683}"
+        sound = sound_record("CH04_S102_WT_001", guid)
+        sound["filePath"] = (
+            f"Y:/{FIXTURE_ROOT.name}/Actor-Mixer Hierarchy/Default Work Unit.wwu"
+        )
+
+        with patch(
+            "wwise_p4_source_relocator.waapi_transport.Path.home",
+            return_value=FIXTURE_ROOT.resolve().parent,
+        ):
+            result = build_scan_result(
+                [
+                    sound,
+                    source_record(
+                        guid,
+                        r"Voices\English(US)\Scenario\CH04\CH04_S102_WT_001.wav",
+                    ),
+                ],
+                project_root=FIXTURE_ROOT,
+                object_root=OBJECT_ROOT,
+                chapter="CH04",
+            )
+
+        self.assertEqual(
+            "Actor-Mixer Hierarchy/Default Work Unit.wwu",
+            result.items[0].work_unit_path,
+        )
+
+    @unittest.skipIf(
+        os.name == "nt", "Wine-mapped paths apply to non-Windows hosts"
+    )
+    def test_rejects_unrelated_wine_drive_path(self) -> None:
+        guid = "{8886C06E-4664-4CEA-B3F1-8668CCDF3683}"
+        sound = sound_record("CH04_S102_WT_001", guid)
+        sound["filePath"] = (
+            "Y:/unrelated-project/Actor-Mixer Hierarchy/Default Work Unit.wwu"
+        )
+
+        with (
+            patch(
+                "wwise_p4_source_relocator.waapi_transport.Path.home",
+                return_value=FIXTURE_ROOT.resolve().parent,
+            ),
+            self.assertRaisesRegex(WaapiError, "outside project root"),
+        ):
+            build_scan_result(
+                [
+                    sound,
+                    source_record(
+                        guid,
+                        r"Voices\English(US)\Scenario\CH04\CH04_S102_WT_001.wav",
+                    ),
+                ],
+                project_root=FIXTURE_ROOT,
+                object_root=OBJECT_ROOT,
+                chapter="CH04",
+            )
+
+    @unittest.skipIf(
+        os.name == "nt", "Wine-mapped paths apply to non-Windows hosts"
+    )
+    def test_rejects_wine_path_that_escapes_the_project(self) -> None:
+        guid = "{8886C06E-4664-4CEA-B3F1-8668CCDF3683}"
+        sound = sound_record("CH04_S102_WT_001", guid)
+        sound["filePath"] = (
+            f"Y:/{FIXTURE_ROOT.name}/../outside/Default Work Unit.wwu"
+        )
+
+        with (
+            patch(
+                "wwise_p4_source_relocator.waapi_transport.Path.home",
+                return_value=FIXTURE_ROOT.resolve().parent,
+            ),
+            self.assertRaisesRegex(WaapiError, "outside project root"),
+        ):
+            build_scan_result(
+                [
+                    sound,
+                    source_record(
+                        guid,
+                        r"Voices\English(US)\Scenario\CH04\CH04_S102_WT_001.wav",
+                    ),
+                ],
+                project_root=FIXTURE_ROOT,
+                object_root=OBJECT_ROOT,
+                chapter="CH04",
+            )
+
+    @unittest.skipIf(
+        os.name == "nt", "Wine-mapped paths apply to non-Windows hosts"
+    )
+    def test_rejects_unsupported_or_non_absolute_windows_paths(self) -> None:
+        guid = "{8886C06E-4664-4CEA-B3F1-8668CCDF3683}"
+        invalid_paths = (
+            "X:/project/Actor-Mixer Hierarchy/Default Work Unit.wwu",
+            "Y:Actor-Mixer Hierarchy/Default Work Unit.wwu",
+            r"\\server\share\project\Default Work Unit.wwu",
+        )
+
+        for file_path in invalid_paths:
+            with self.subTest(file_path=file_path):
+                sound = sound_record("CH04_S102_WT_001", guid)
+                sound["filePath"] = file_path
+                with self.assertRaisesRegex(WaapiError, "outside project root"):
+                    build_scan_result(
+                        [
+                            sound,
+                            source_record(
+                                guid,
+                                r"Voices\English(US)\Scenario\CH04\CH04_S102_WT_001.wav",
+                            ),
+                        ],
+                        project_root=FIXTURE_ROOT,
+                        object_root=OBJECT_ROOT,
+                        chapter="CH04",
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

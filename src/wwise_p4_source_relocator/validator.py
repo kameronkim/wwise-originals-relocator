@@ -14,11 +14,13 @@ from .models import (
     ValidationIssue,
     ValidationResult,
 )
+from .operation_lock import ProjectOperationBusyError, project_operation_lock
 from .p4_client import P4Client, parse_p4_tagged_records
 from .project_paths import UnsafeProjectPath, resolve_project_path
 from .waapi_transport import (
     HttpWaapiConnection,
     WaapiCallError,
+    normalize_wwise_file_path,
     parse_local_waapi_url,
 )
 from .wwise_xml import WwuParseError, source_path_count_for_guid
@@ -42,103 +44,38 @@ class WaapiConnection(Protocol):
 def validate_applied_manifest(
     manifest: RollbackManifest, *, p4: P4Client
 ) -> ValidationResult:
-    issues: list[ValidationIssue] = []
-    root = manifest.project_root.resolve()
-
-    if (
-        not manifest.moves
-        or len(manifest.moves) != len(manifest.patched_files)
-        or len(manifest.moves) != len(manifest.affected_objects)
-    ):
+    try:
+        with project_operation_lock(manifest.project_root):
+            return _validate_applied_manifest_unlocked(manifest, p4=p4)
+    except ProjectOperationBusyError as exc:
         return ValidationResult(
-            (
-                ValidationIssue(
-                    "manifest-scope",
-                    "Apply manifest must describe matching moves, patches, and objects",
-                ),
-            )
+            (ValidationIssue("project-operation-busy", str(exc)),)
         )
 
-    resolved_moves: list[tuple[Path, Path]] = []
-    resolved_work_units: dict[str, Path] = {}
-    try:
-        resolved_moves = [
-            (
-                resolve_project_path(root, move.from_relative_path),
-                resolve_project_path(root, move.to_relative_path),
-            )
-            for move in manifest.moves
-        ]
-        resolved_work_units = {
-            patched.relative_path: resolve_project_path(root, patched.relative_path)
-            for patched in manifest.patched_files
-        }
-    except UnsafeProjectPath as exc:
-        return ValidationResult((ValidationIssue("outside-project", str(exc)),))
 
-    for source, target in resolved_moves:
-        if source.exists():
-            issues.append(
-                ValidationIssue("source-still-exists", f"Source WAV still exists: {source}")
-            )
-        if not target.is_file():
-            issues.append(
-                ValidationIssue("target-missing", f"Target WAV is missing: {target}")
-            )
+def _validate_applied_manifest_unlocked(
+    manifest: RollbackManifest, *, p4: P4Client
+) -> ValidationResult:
+    filesystem = validate_applied_filesystem_manifest(manifest)
+    issues = list(filesystem.issues)
+    if any(
+        issue.code in {"manifest-scope", "outside-project"}
+        for issue in filesystem.issues
+    ):
+        return filesystem
 
-    checked_hashes: set[str] = set()
-    for patched in manifest.patched_files:
-        work_unit = resolved_work_units[patched.relative_path]
-        if not work_unit.is_file():
-            issues.append(
-                ValidationIssue(
-                    "work-unit-missing", f"Work Unit is missing: {work_unit}"
-                )
-            )
-            continue
-        if patched.relative_path not in checked_hashes:
-            checked_hashes.add(patched.relative_path)
-            expected_hashes = {
-                record.patched_sha256
-                for record in manifest.patched_files
-                if record.relative_path == patched.relative_path
-            }
-            digest = hashlib.sha256(work_unit.read_bytes()).hexdigest()
-            if len(expected_hashes) != 1 or digest not in expected_hashes:
-                issues.append(
-                    ValidationIssue(
-                        "unexpected-wwu-diff",
-                        f"Work Unit contains changes beyond the prepared patch: {work_unit}",
-                    )
-                )
-        try:
-            old_count = source_path_count_for_guid(
-                work_unit,
-                object_guid=patched.object_guid,
-                relative_path=patched.old_xml_path,
-            )
-            new_count = source_path_count_for_guid(
-                work_unit,
-                object_guid=patched.object_guid,
-                relative_path=patched.new_xml_path,
-            )
-        except WwuParseError as exc:
-            issues.append(ValidationIssue("work-unit-invalid", str(exc)))
-            continue
-        if old_count:
-            issues.append(
-                ValidationIssue(
-                    "old-source-present",
-                    f"Old source path remains in the target Sound: {patched.old_xml_path}",
-                )
-            )
-        if new_count != 1:
-            issues.append(
-                ValidationIssue(
-                    "new-source-mismatch",
-                    f"New source path is not unique in the target Sound: {patched.new_xml_path}",
-                )
-            )
+    root = manifest.project_root.resolve()
+    resolved_moves = [
+        (
+            resolve_project_path(root, move.from_relative_path),
+            resolve_project_path(root, move.to_relative_path),
+        )
+        for move in manifest.moves
+    ]
+    resolved_work_units = {
+        patched.relative_path: resolve_project_path(root, patched.relative_path)
+        for patched in manifest.patched_files
+    }
 
     perforce_issue_start = len(issues)
     perforce_issues, perforce_summary = _validate_perforce_opened_state(
@@ -172,6 +109,158 @@ def validate_applied_manifest(
         tuple(issues),
         details={"perforce": perforce_summary},
     )
+
+
+def validate_applied_filesystem_manifest(
+    manifest: RollbackManifest,
+) -> ValidationResult:
+    try:
+        with project_operation_lock(manifest.project_root):
+            return _validate_applied_filesystem_manifest_unlocked(manifest)
+    except ProjectOperationBusyError as exc:
+        return ValidationResult(
+            (ValidationIssue("project-operation-busy", str(exc)),)
+        )
+
+
+def _validate_applied_filesystem_manifest_unlocked(
+    manifest: RollbackManifest,
+) -> ValidationResult:
+    """Validate relocated files and Work Units without invoking Perforce."""
+
+    issues: list[ValidationIssue] = []
+    root = manifest.project_root.resolve()
+
+    if (
+        not manifest.moves
+        or len(manifest.moves) != len(manifest.patched_files)
+        or len(manifest.moves) != len(manifest.affected_objects)
+    ):
+        return ValidationResult(
+            (
+                ValidationIssue(
+                    "manifest-scope",
+                    "Apply manifest must describe matching moves, patches, and objects",
+                ),
+            )
+        )
+
+    try:
+        resolved_moves = [
+            (
+                resolve_project_path(root, move.from_relative_path),
+                resolve_project_path(root, move.to_relative_path),
+            )
+            for move in manifest.moves
+        ]
+        resolved_work_units = {
+            patched.relative_path: resolve_project_path(root, patched.relative_path)
+            for patched in manifest.patched_files
+        }
+    except UnsafeProjectPath as exc:
+        return ValidationResult((ValidationIssue("outside-project", str(exc)),))
+
+    for move, (source, target) in zip(manifest.moves, resolved_moves):
+        if source.exists():
+            issues.append(
+                ValidationIssue("source-still-exists", f"Source WAV still exists: {source}")
+            )
+        if not target.is_file():
+            issues.append(
+                ValidationIssue("target-missing", f"Target WAV is missing: {target}")
+            )
+            continue
+        if manifest.operation_mode == "local-filesystem" and not move.source_sha256:
+            issues.append(
+                ValidationIssue(
+                    "source-hash-missing",
+                    f"Local move does not record the original WAV hash: {target}",
+                )
+            )
+        elif move.source_sha256:
+            try:
+                digest = _file_sha256(target)
+            except OSError as exc:
+                issues.append(
+                    ValidationIssue(
+                        "target-read-failed",
+                        f"Target WAV could not be read: {target}: {exc}",
+                    )
+                )
+            else:
+                if digest != move.source_sha256:
+                    issues.append(
+                        ValidationIssue(
+                            "target-content-mismatch",
+                            f"Target WAV content changed after the move: {target}",
+                        )
+                    )
+
+    checked_hashes: set[str] = set()
+    for patched in manifest.patched_files:
+        work_unit = resolved_work_units[patched.relative_path]
+        if not work_unit.is_file():
+            issues.append(
+                ValidationIssue(
+                    "work-unit-missing", f"Work Unit is missing: {work_unit}"
+                )
+            )
+            continue
+        if patched.relative_path not in checked_hashes:
+            checked_hashes.add(patched.relative_path)
+            expected_hashes = {
+                record.patched_sha256
+                for record in manifest.patched_files
+                if record.relative_path == patched.relative_path
+            }
+            try:
+                digest = _file_sha256(work_unit)
+            except OSError as exc:
+                issues.append(
+                    ValidationIssue(
+                        "work-unit-read-failed",
+                        f"Work Unit could not be read: {work_unit}: {exc}",
+                    )
+                )
+            else:
+                if len(expected_hashes) != 1 or digest not in expected_hashes:
+                    issues.append(
+                        ValidationIssue(
+                            "unexpected-wwu-diff",
+                            "Work Unit contains changes beyond the prepared patch: "
+                            f"{work_unit}",
+                        )
+                    )
+        try:
+            old_count = source_path_count_for_guid(
+                work_unit,
+                object_guid=patched.object_guid,
+                relative_path=patched.old_xml_path,
+            )
+            new_count = source_path_count_for_guid(
+                work_unit,
+                object_guid=patched.object_guid,
+                relative_path=patched.new_xml_path,
+            )
+        except WwuParseError as exc:
+            issues.append(ValidationIssue("work-unit-invalid", str(exc)))
+            continue
+        if old_count:
+            issues.append(
+                ValidationIssue(
+                    "old-source-present",
+                    f"Old source path remains in the target Sound: {patched.old_xml_path}",
+                )
+            )
+        if new_count != 1:
+            issues.append(
+                ValidationIssue(
+                    "new-source-mismatch",
+                    f"New source path is not unique in the target Sound: {patched.new_xml_path}",
+                )
+            )
+
+    return ValidationResult(tuple(issues))
 
 
 def _validate_perforce_opened_state(
@@ -278,6 +367,11 @@ def _validate_perforce_opened_state(
 
 def _local_path_key(path: str | Path) -> str:
     return os.path.normcase(os.path.abspath(str(path))).casefold()
+
+
+def _file_sha256(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def _depot_path_key(path: str) -> str:
@@ -570,7 +664,5 @@ def _canonical_source_path(value: str) -> str:
 
 
 def _waapi_file_exists(value: str) -> bool:
-    normalized = value.replace("\\", "/")
-    if normalized.casefold().startswith("z:/") and os.name != "nt":
-        normalized = normalized[2:]
-    return Path(normalized).is_file()
+    normalized = normalize_wwise_file_path(value)
+    return normalized is not None and normalized.is_file()

@@ -3,8 +3,11 @@ from __future__ import annotations
 import codecs
 from dataclasses import dataclass
 import hashlib
+import os
 from pathlib import Path, PurePosixPath
 import re
+import stat
+import tempfile
 from typing import Any
 from xml.sax.saxutils import escape  # nosec B406
 
@@ -239,7 +242,27 @@ def write_prepared_patch(wwu_path: str | Path, patch: PreparedWwuPatch) -> None:
     path = Path(wwu_path)
     if path.read_bytes() != patch.original_bytes:
         raise WwuPatchError("Work Unit changed after the patch was prepared")
-    path.write_bytes(patch.patched_bytes)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(patch.patched_bytes)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary_path, stat.S_IMODE(path.stat().st_mode))
+        if path.read_bytes() != patch.original_bytes:
+            raise WwuPatchError("Work Unit changed after the patch was prepared")
+        _replace_file(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def _replace_file(source: Path, target: Path) -> None:
+    os.replace(source, target)
 
 
 def source_path_count_for_guid(
