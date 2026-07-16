@@ -20,8 +20,9 @@ pre-release may document an outstanding live-validation gate.
 - Publish the exact Windows portable ZIP produced by the build as the workflow
   artifact.
 - Expand the real disposable Perforce integration to a two-file batch Apply
-  and exact manifest Rollback, including P4 Server 2026.1 secure bootstrap and
-  restored WAV, Work Unit, and opened-state checks.
+  and exact manifest Rollback with restored WAV, Work Unit, and opened-state
+  checks. Local verification also covers P4 Server 2026.1 secure first-user
+  bootstrap; Windows CI remains pinned to the reviewed 2025.1 binaries.
 
 ### Validation status
 
