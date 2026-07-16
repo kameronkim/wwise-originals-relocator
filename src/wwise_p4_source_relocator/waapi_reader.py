@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from multiprocessing import get_context
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from queue import Empty
 from typing import Protocol
 
@@ -11,6 +11,7 @@ from .planner import SUPPORTED_CATEGORIES
 from .waapi_transport import (
     HttpWaapiConnection,
     WaapiCallError,
+    normalize_wwise_file_path,
     parse_local_waapi_url,
     waapi_websocket_is_reachable,
 )
@@ -378,19 +379,21 @@ def _source_language(source: dict[str, object]) -> str | None:
 
 def _relative_file_path(file_path: str, project_root: Path) -> str:
     normalized = file_path.replace("\\", "/")
-    if normalized.casefold().startswith("z:/") and project_root.as_posix().startswith(
-        "/"
-    ):
-        normalized = normalized[2:]
     candidate = Path(normalized)
-    if candidate.is_absolute():
-        try:
-            return candidate.resolve().relative_to(project_root).as_posix()
-        except ValueError as exc:
-            raise WaapiError(
-                f"Work Unit {file_path} is outside project root {project_root}"
-            ) from exc
-    return normalized
+    windows_path = PureWindowsPath(file_path)
+    if not candidate.is_absolute() and not windows_path.drive:
+        return normalized
+    mapped = normalize_wwise_file_path(file_path)
+    if mapped is None:
+        raise WaapiError(
+            f"Work Unit {file_path} is outside project root {project_root}"
+        )
+    try:
+        return mapped.relative_to(project_root.resolve()).as_posix()
+    except ValueError as exc:
+        raise WaapiError(
+            f"Work Unit {file_path} is outside project root {project_root}"
+        ) from exc
 
 
 def _required_record_string(record: dict[str, object], key: str) -> str:

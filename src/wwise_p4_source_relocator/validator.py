@@ -19,6 +19,7 @@ from .project_paths import UnsafeProjectPath, resolve_project_path
 from .waapi_transport import (
     HttpWaapiConnection,
     WaapiCallError,
+    normalize_wwise_file_path,
     parse_local_waapi_url,
 )
 from .wwise_xml import WwuParseError, source_path_count_for_guid
@@ -570,7 +571,5 @@ def _canonical_source_path(value: str) -> str:
 
 
 def _waapi_file_exists(value: str) -> bool:
-    normalized = value.replace("\\", "/")
-    if normalized.casefold().startswith("z:/") and os.name != "nt":
-        normalized = normalized[2:]
-    return Path(normalized).is_file()
+    normalized = normalize_wwise_file_path(value)
+    return normalized is not None and normalized.is_file()

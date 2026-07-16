@@ -764,6 +764,44 @@ class ApplyRollbackTests(unittest.TestCase):
 
         self.assertTrue(result.is_valid)
 
+    @unittest.skipIf(
+        os.name == "nt", "Wine-mapped paths apply to non-Windows hosts"
+    )
+    def test_live_validation_accepts_wine_home_mapped_original_path(self) -> None:
+        p4 = FakeP4()
+        manifest, _ = apply_single_file(
+            build_plan(self.project_root),
+            only="CH04_S102_WT_001.wav",
+            manifest_path=self.manifest_path,
+            p4=p4,
+            probe=CleanWorkspaceProbe(),
+        )
+        affected = manifest.affected_objects[0]
+        target = manifest.project_root / manifest.moves[0].to_relative_path
+        mapped_home = Path(self.temp.name).resolve()
+
+        with patch(
+            "wwise_p4_source_relocator.waapi_transport.Path.home",
+            return_value=mapped_home,
+        ):
+            result = validate_live_wwise_manifest(
+                manifest,
+                connection=FakeWaapiConnection(
+                    {
+                        "id": affected.guid,
+                        "path": affected.object_path,
+                        "originalRelativeFilePath": (
+                            affected.after_source_relative_path
+                        ),
+                        "originalFilePath": (
+                            "Y:/" + target.relative_to(mapped_home).as_posix()
+                        ),
+                    }
+                ),
+            )
+
+        self.assertTrue(result.is_valid)
+
     def test_rollback_rejects_manifest_path_outside_project(self) -> None:
         p4 = FakeP4()
         manifest, _ = apply_single_file(
