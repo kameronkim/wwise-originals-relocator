@@ -310,15 +310,18 @@ def _response_matches_project(
     expected_files = sorted(Path(project_root).resolve().glob("*.wproj"))
     if len(expected_files) != 1:
         return False
-    actual_path = _normalize_wwise_project_path(actual)
+    actual_path = normalize_wwise_file_path(actual)
     return actual_path is not None and actual_path == expected_files[0].resolve()
 
 
-def _normalize_wwise_project_path(value: str) -> Path | None:
+def normalize_wwise_file_path(value: str) -> Path | None:
     if sys.platform == "win32":
-        return Path(value).expanduser().resolve()
+        candidate = Path(value).expanduser()
+        return candidate.resolve() if candidate.is_absolute() else None
     windows_path = PureWindowsPath(value)
     if windows_path.drive:
+        if not windows_path.is_absolute():
+            return None
         drive = windows_path.drive.rstrip(":").casefold()
         relative = Path(*windows_path.parts[1:])
         if drive == "z":
@@ -326,7 +329,8 @@ def _normalize_wwise_project_path(value: str) -> Path | None:
         if drive == "y":
             return (Path.home() / relative).resolve()
         return None
-    return Path(value.replace("\\", "/")).expanduser().resolve()
+    candidate = Path(value.replace("\\", "/")).expanduser()
+    return candidate.resolve() if candidate.is_absolute() else None
 
 
 def _json_object(payload: bytes) -> dict[str, object] | None:

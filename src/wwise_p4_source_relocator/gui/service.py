@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
+from functools import wraps
 import hashlib
 import json
 import logging
@@ -14,7 +15,11 @@ import sys
 from time import perf_counter
 
 from .. import __version__
-from ..applier import ApplyError, apply_selected_files
+from ..applier import (
+    ApplyError,
+    apply_selected_files,
+    apply_selected_files_locally,
+)
 from ..models import (
     RelocationPlan,
     RollbackManifest,
@@ -22,6 +27,7 @@ from ..models import (
     ValidationIssue,
     ValidationResult,
 )
+from ..operation_lock import ProjectOperationBusyError, project_operation_lock
 from ..p4_client import (
     P4CommandError,
     P4Client,
@@ -44,10 +50,11 @@ from ..report import (
     render_validation,
     write_json_document,
 )
-from ..rollback import rollback_manifest
+from ..rollback import rollback_local_manifest, rollback_manifest
 from ..validator import (
     DEFAULT_LIVE_WWISE_BATCH_SIZE,
     validate_applied_manifest,
+    validate_applied_filesystem_manifest,
     validate_live_wwise_manifest_at_url,
 )
 from ..waapi_reader import WaapiError, scan_live
@@ -78,6 +85,31 @@ def _elapsed_ms(started: float) -> float:
 
 class GuiServiceError(RuntimeError):
     """An actionable operator error that is safe to show in the GUI."""
+
+
+def _locked_project_operation(
+    method: Callable[..., dict[str, object]],
+) -> Callable[..., dict[str, object]]:
+    @wraps(method)
+    def wrapped(
+        service: PortableGuiService,
+        values: Mapping[str, object],
+        *args: object,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        settings = dict(DEFAULT_SETTINGS)
+        settings.update(_normalize_settings(values))
+        project_root = _project_root(settings)
+        try:
+            with project_operation_lock(project_root):
+                return method(service, values, *args, **kwargs)
+        except ProjectOperationBusyError as exc:
+            raise GuiServiceError(
+                "같은 Wwise 프로젝트에서 다른 적용·검증·복구 작업이 "
+                "진행 중입니다. 해당 작업이 끝난 뒤 다시 시도해 주세요."
+            ) from exc
+
+    return wrapped
 
 
 class LocalTestWorkspaceProbe:
@@ -136,13 +168,22 @@ class PortableGuiService:
         applier: Callable[
             ..., tuple[RollbackManifest, ValidationResult]
         ] = apply_selected_files,
+        local_applier: Callable[
+            ..., tuple[RollbackManifest, ValidationResult]
+        ] = apply_selected_files_locally,
         applied_validator: Callable[
             ..., ValidationResult
         ] = validate_applied_manifest,
+        local_applied_validator: Callable[
+            ..., ValidationResult
+        ] = validate_applied_filesystem_manifest,
         live_validator: Callable[
             ..., ValidationResult
         ] = validate_live_wwise_manifest_at_url,
         rollbacker: Callable[..., ValidationResult] = rollback_manifest,
+        local_rollbacker: Callable[
+            ..., ValidationResult
+        ] = rollback_local_manifest,
         p4_client_factory: Callable[[str, P4Connection], P4Client] | None = None,
         workspace_probe_factory: (
             Callable[[str, P4Connection], P4WorkspaceProbe] | None
@@ -154,9 +195,12 @@ class PortableGuiService:
         self._planner = planner
         self._plan_validator = plan_validator
         self._applier = applier
+        self._local_applier = local_applier
         self._applied_validator = applied_validator
+        self._local_applied_validator = local_applied_validator
         self._live_validator = live_validator
         self._rollbacker = rollbacker
+        self._local_rollbacker = local_rollbacker
         self._p4_client_factory = p4_client_factory or _live_p4_client
         self._workspace_probe_factory = (
             workspace_probe_factory or P4WorkspaceProbe
@@ -468,6 +512,7 @@ class PortableGuiService:
             },
         }
 
+    @_locked_project_operation
     def run_apply(
         self,
         values: Mapping[str, object],
@@ -476,10 +521,7 @@ class PortableGuiService:
     ) -> dict[str, object]:
         settings = self.store.save(values)
         project_root = _project_root(settings)
-        if _offline_test_mode(settings):
-            raise GuiServiceError(
-                "Perforce 없는 로컬 테스트에서는 파일을 적용할 수 없습니다."
-            )
+        offline_test_mode = _offline_test_mode(settings)
         selected = _selected_file_names(source_file_names)
         if not selected or confirmation != _confirmation_token(selected):
             raise GuiServiceError("선택한 파일 목록 확인이 일치하지 않습니다.")
@@ -504,22 +546,30 @@ class PortableGuiService:
                 "Rollback을 완료해 주세요."
             )
 
-        p4_executable = _p4_executable(settings)
-        p4_connection = _p4_connection(settings)
         report_root = self._new_report_root("apply")
         manifest_path = report_root / "rollback-manifest.json"
         validation_path = report_root / "apply-validation.md"
         try:
-            manifest, validation = self._applier(
-                self._planned_plan,
-                only=selected,
-                manifest_path=manifest_path,
-                p4=self._p4_client_factory(p4_executable, p4_connection),
-                probe=self._workspace_probe_factory(
-                    p4_executable,
-                    p4_connection,
-                ),
-            )
+            if offline_test_mode:
+                manifest, validation = self._local_applier(
+                    self._planned_plan,
+                    only=selected,
+                    manifest_path=manifest_path,
+                    probe=LocalTestWorkspaceProbe(),
+                )
+            else:
+                p4_executable = _p4_executable(settings)
+                p4_connection = _p4_connection(settings)
+                manifest, validation = self._applier(
+                    self._planned_plan,
+                    only=selected,
+                    manifest_path=manifest_path,
+                    p4=self._p4_client_factory(p4_executable, p4_connection),
+                    probe=self._workspace_probe_factory(
+                        p4_executable,
+                        p4_connection,
+                    ),
+                )
         except ApplyError as exc:
             failure_path = report_root / "apply-failure.md"
             failure_path.write_text(
@@ -590,6 +640,7 @@ class PortableGuiService:
             },
         }
 
+    @_locked_project_operation
     def run_validate_apply(
         self,
         values: Mapping[str, object],
@@ -597,10 +648,6 @@ class PortableGuiService:
         operation_started = perf_counter()
         settings = self.store.save(values)
         project_root = _project_root(settings)
-        if _offline_test_mode(settings):
-            raise GuiServiceError(
-                "Perforce 없는 로컬 테스트에서는 적용 결과를 검증할 수 없습니다."
-            )
         active = self._active_manifests(project_root)
         if len(active) != 1:
             raise GuiServiceError(
@@ -613,12 +660,15 @@ class PortableGuiService:
                 "실행해 주세요."
             )
 
-        p4 = self._p4_client_factory(
-            _p4_executable(settings),
-            _p4_connection(settings),
-        )
         local_started = perf_counter()
-        local = self._applied_validator(manifest, p4=p4)
+        if manifest.operation_mode == "local-filesystem":
+            local = self._local_applied_validator(manifest)
+        else:
+            p4 = self._p4_client_factory(
+                _p4_executable(settings),
+                _p4_connection(settings),
+            )
+            local = self._applied_validator(manifest, p4=p4)
         local_ms = _elapsed_ms(local_started)
         live_started = perf_counter()
         try:
@@ -698,6 +748,7 @@ class PortableGuiService:
             },
         }
 
+    @_locked_project_operation
     def run_handoff_apply(
         self,
         values: Mapping[str, object],
@@ -705,16 +756,21 @@ class PortableGuiService:
     ) -> dict[str, object]:
         settings = self.store.save(values)
         project_root = _project_root(settings)
-        if _offline_test_mode(settings):
-            raise GuiServiceError(
-                "Perforce 없는 로컬 테스트에서는 P4V 인계를 실행할 수 없습니다."
-            )
         active = self._active_manifests(project_root)
         if len(active) != 1:
             raise GuiServiceError(
                 "P4V로 인계할 작업 manifest를 정확히 하나 찾을 수 없습니다."
             )
         manifest_path, manifest = active[0]
+        if manifest.operation_mode == "local-filesystem":
+            raise GuiServiceError(
+                "로컬 테스트 작업은 Perforce move 액션이 없으므로 P4V로 "
+                "인계할 수 없습니다. 테스트를 마치면 Rollback해 주세요."
+            )
+        if _offline_test_mode(settings):
+            raise GuiServiceError(
+                "Perforce 없는 로컬 테스트에서는 P4V 인계를 실행할 수 없습니다."
+            )
         if manifest.status != "applied":
             raise GuiServiceError("현재 작업은 P4V 인계 단계가 아닙니다.")
         if confirmation != _manifest_confirmation_token(manifest):
@@ -740,22 +796,27 @@ class PortableGuiService:
             "reports": validation["reports"],
         }
 
+    @_locked_project_operation
     def run_check_handoff(
         self,
         values: Mapping[str, object],
     ) -> dict[str, object]:
         settings = self.store.save(values)
         project_root = _project_root(settings)
-        if _offline_test_mode(settings):
-            raise GuiServiceError(
-                "Perforce 없는 로컬 테스트에서는 P4V 마감을 확인할 수 없습니다."
-            )
         active = self._active_manifests(project_root)
         if len(active) != 1:
             raise GuiServiceError(
                 "마감 상태를 확인할 작업 manifest를 정확히 하나 찾을 수 없습니다."
             )
         manifest_path, manifest = active[0]
+        if manifest.operation_mode == "local-filesystem":
+            raise GuiServiceError(
+                "로컬 테스트 작업에는 확인할 P4V 인계 상태가 없습니다."
+            )
+        if _offline_test_mode(settings):
+            raise GuiServiceError(
+                "Perforce 없는 로컬 테스트에서는 P4V 마감을 확인할 수 없습니다."
+            )
         if manifest.status != "handed-off":
             raise GuiServiceError("먼저 검증 완료 작업을 P4V로 인계해 주세요.")
 
@@ -850,6 +911,7 @@ class PortableGuiService:
             "activeOperation": None,
         }
 
+    @_locked_project_operation
     def run_rollback(
         self,
         values: Mapping[str, object],
@@ -857,10 +919,6 @@ class PortableGuiService:
     ) -> dict[str, object]:
         settings = self.store.save(values)
         project_root = _project_root(settings)
-        if _offline_test_mode(settings):
-            raise GuiServiceError(
-                "Perforce 없는 로컬 테스트에서는 Rollback을 실행할 수 없습니다."
-            )
         active = self._active_manifests(project_root)
         if len(active) != 1:
             raise GuiServiceError(
@@ -870,7 +928,10 @@ class PortableGuiService:
         manifest_path, manifest = active[0]
         if confirmation != _manifest_confirmation_token(manifest):
             raise GuiServiceError("Rollback 파일 목록 확인이 일치하지 않습니다.")
-        if manifest.status == "handed-off":
+        if (
+            manifest.operation_mode == "perforce"
+            and manifest.status == "handed-off"
+        ):
             try:
                 operation_paths = _manifest_operation_paths(manifest)
             except UnsafeProjectPath as exc:
@@ -896,14 +957,20 @@ class PortableGuiService:
         report_root = self._new_report_root("rollback")
         validation_path = report_root / "rollback-validation.md"
         try:
-            result = self._rollbacker(
-                manifest,
-                p4=self._p4_client_factory(
-                    _p4_executable(settings),
-                    _p4_connection(settings),
-                ),
-                manifest_path=manifest_path,
-            )
+            if manifest.operation_mode == "local-filesystem":
+                result = self._local_rollbacker(
+                    manifest,
+                    manifest_path=manifest_path,
+                )
+            else:
+                result = self._rollbacker(
+                    manifest,
+                    p4=self._p4_client_factory(
+                        _p4_executable(settings),
+                        _p4_connection(settings),
+                    ),
+                    manifest_path=manifest_path,
+                )
         except Exception as exc:
             LOGGER.exception("Rollback stopped unexpectedly")
             result = ValidationResult(
@@ -940,13 +1007,20 @@ class PortableGuiService:
                 manifest = read_rollback_manifest(path)
             except (OSError, ValueError, json.JSONDecodeError):
                 continue
+            active_status = manifest.status in {
+                "awaiting-wwise-reload",
+                "applied",
+                "handed-off",
+                "failed",
+            }
             if (
-                manifest.status in {
-                    "awaiting-wwise-reload",
-                    "applied",
-                    "handed-off",
-                    "failed",
-                }
+                (
+                    active_status
+                    or (
+                        manifest.status == "prepared"
+                        and manifest.operation_mode == "local-filesystem"
+                    )
+                )
                 and len(manifest.moves) >= 1
                 and len(manifest.moves) == len(manifest.patched_files)
                 and len(manifest.moves) == len(manifest.affected_objects)
@@ -1190,6 +1264,7 @@ def _manifest_summary(
         "to": first["to"] if count == 1 else f"{count}개 대상 경로",
         "objectPath": first["objectPath"] if count == 1 else f"{count}개 Wwise 객체",
         "moves": moves,
+        "operationMode": manifest.operation_mode,
         "status": manifest.status,
         "validated": (
             manifest.status == "applied"

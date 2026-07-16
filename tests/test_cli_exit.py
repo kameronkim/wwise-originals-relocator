@@ -6,8 +6,22 @@ import sys
 import tempfile
 import unittest
 
+from wwise_p4_source_relocator.cli import build_parser
+
 
 class CliExitTests(unittest.TestCase):
+    def test_bootstrap_defaults_to_three_type_temp_vo_fixture(self) -> None:
+        args = build_parser().parse_args(
+            ("bootstrap-project", "--project-root", "WwiseRelocatorPilot")
+        )
+
+        self.assertEqual(
+            r"\Containers\Default Work Unit\VO\Temp_VO",
+            args.object_root,
+        )
+        self.assertIsNone(args.category)
+        self.assertIsNone(args.sound_name)
+
     def test_python_module_propagates_command_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             result = subprocess.run(

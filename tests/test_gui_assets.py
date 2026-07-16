@@ -16,7 +16,7 @@ class GuiAssetTests(unittest.TestCase):
         index = (ASSET_ROOT / "index.html").read_text(encoding="utf-8")
 
         self.assertIn('href="styles.css?v=12"', index)
-        self.assertIn('src="app.js?v=13"', index)
+        self.assertIn('src="app.js?v=14"', index)
         self.assertTrue((ASSET_ROOT / "styles.css").is_file())
         self.assertTrue((ASSET_ROOT / "app.js").is_file())
 
@@ -68,6 +68,11 @@ class GuiAssetTests(unittest.TestCase):
         self.assertIn('id="p4-client"', index)
         self.assertIn("'detect_p4_connection'", script)
         self.assertIn("offlineTestMode", script)
+        self.assertIn("operationMode === 'local-filesystem'", script)
+        self.assertNotIn("&& !result.offlineTestMode", script)
+        self.assertIn("WAV와 Work Unit을 로컬에서 실제로 변경", index)
+        self.assertIn("로컬 변경", index)
+        self.assertIn("Perforce 액션은 만들지 않고", index)
         self.assertIn("p4WorkspaceIssue", script)
         self.assertIn("Workspace 선택 필요", script)
         self.assertIn("프로젝트에 맞는 workspace를 자동으로 찾지 못했습니다", script)

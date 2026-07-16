@@ -6,12 +6,27 @@ pre-release may document an outstanding live-validation gate.
 
 ## Unreleased
 
+## [0.1.0] - 2026-07-16
+
+### Added
+
+- Complete Perforce-free local testing: selected WAV files are moved directly,
+  matching Work Unit source paths are patched, live Wwise objects are
+  validated after Reload, and the recorded operation can be rolled back
+  without a Perforce installation.
+- A disposable three-category Wwise pilot covering Script, Dialog, and
+  Cutscene sources below a nested `Temp_VO` object root.
+
 ### Fixed
 
 - Redact non-public Perforce settings from diagnostic logs when `p4 set`
   fails.
 - Correct RC8 download, rollback-scope, and platform guidance across the public
   README and offline usage guide.
+- Normalize Windows-style Wwise project and Work Unit paths returned by
+  CrossOver or Wine before comparing them with native macOS project paths.
+- Persist rollback manifests and Work Unit patches with atomic replacement,
+  and refuse local moves or restores that would overwrite an existing file.
 
 ### Changed
 
@@ -24,8 +39,25 @@ pre-release may document an outstanding live-validation gate.
   checks. Local verification also covers P4 Server 2026.1 secure first-user
   bootstrap; Windows CI remains pinned to the reviewed 2025.1 binaries.
 
+### Security
+
+- Serialize Apply, Wwise validation, P4V handoff checks, and Rollback with a
+  project-scoped cross-process lock so concurrent app instances cannot race a
+  file move or overwrite a newer manifest state.
+- Record local WAV hashes before mutation, reject changed files during
+  validation or Rollback, and remove only target directories created by the
+  recorded operation.
+
 ### Validation status
 
+- 174 automated tests, 1 expected skip, and 17 subtests pass on the release
+  source.
+- The exact Windows feature build passed tests, dependency and static security
+  audits, portable packaging, executable smoke testing, and live Perforce
+  2025.1 integration.
+- A macOS arm64 portable run planned and applied Script, Dialog, and Cutscene
+  moves, passed two live Wwise validations with zero issues, and rolled all
+  three WAV files and the shared Work Unit back to their recorded hashes.
 - RC8 completed a representative 332-file production Apply, two successful
   Wwise validations, P4V handoff, and final closeout.
 - A separate loopback-only real `p4d` run completed a two-file Apply/Rollback
