@@ -101,11 +101,23 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--project-name", default="WwiseRelocatorPilot")
     bootstrap.add_argument("--platform", default="Mac")
     bootstrap.add_argument("--language", default="English(US)")
-    bootstrap.add_argument("--object-root", default=r"\Containers\Default Work Unit\VO")
-    bootstrap.add_argument("--category", default="Script")
+    bootstrap.add_argument(
+        "--object-root",
+        default=r"\Containers\Default Work Unit\VO\Temp_VO",
+    )
+    bootstrap.add_argument(
+        "--category",
+        help=(
+            "Create one custom category fixture instead of the default "
+            "Script, Dialog, and Cutscene set"
+        ),
+    )
     bootstrap.add_argument("--chapter", default="CH04")
     bootstrap.add_argument("--source-category", default="Scenario")
-    bootstrap.add_argument("--sound-name", default="CH04_S102_WT_001")
+    bootstrap.add_argument(
+        "--sound-name",
+        help="Sound name for a single custom fixture",
+    )
     return parser
 
 
@@ -238,8 +250,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(
             f"Created populated Wwise pilot project: {pilot.project_file}\n"
             f"Object root: {pilot.object_root}\n"
-            f"Source: {pilot.source_relative_path}\n"
-            f"Expected target: {pilot.target_relative_path}"
+            f"Fixture items: {len(pilot.items)}"
         )
+        for item in pilot.items:
+            print(
+                f"- {item.category}: {item.source_relative_path}"
+                f" -> {item.target_relative_path}"
+            )
         return 0
     raise AssertionError(f"Unhandled command: {args.command}")
