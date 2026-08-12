@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools==83.0.0"]
+requires = ["setuptools==84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -19,7 +19,7 @@ gui = ["pywebview==6.2.1", "waapi-client==0.8.1"]
 portable = [
     "pywebview==6.2.1",
     "waapi-client==0.8.1",
-    "pyinstaller==6.21.0",
+    "pyinstaller==6.22.0",
 ]
 
 [project.scripts]
